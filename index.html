@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gemma Chat</title>
+<style>
+  :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+  body { max-width: 760px; margin: 0 auto; padding: 16px; display: flex; flex-direction: column; height: 100dvh; box-sizing: border-box; }
+  #log { flex: 1; overflow-y: auto; }
+  .msg { white-space: pre-wrap; padding: 8px 12px; border-radius: 8px; margin: 6px 0; }
+  .user { background: #8884; margin-left: 20%; }
+  .assistant { background: #4a84; margin-right: 20%; }
+  .bar, form { display: flex; gap: 8px; margin: 8px 0; }
+  textarea { flex: 1; font: inherit; padding: 8px; resize: none; }
+  button { font: inherit; padding: 6px 14px; }
+  #status { font-size: 13px; opacity: .7; }
+</style>
+</head>
+<body>
+<h3 style="margin:0">Gemma 4 E2B · WebLLM (q4f16)</h3>
+<div class="bar">
+  <button id="dl">1. Download model (~2.9 GB)</button>
+  <button id="run">2. Run model</button>
+</div>
+<div id="status">Download once (saves one file), then Run and pick that file.</div>
+<div id="log"></div>
+<form id="f">
+  <textarea id="q" rows="2" placeholder="Run the model first… (Enter to send)" disabled></textarea>
+  <button id="send" disabled>Send</button>
+</form>
+
+<!-- All the GPU speed fixes (see NOTES.md); shared with the Firefox extension. Must load before WebLLM. -->
+<script src="extension/gpu-fixes.js"></script>
+<script type="module">
+import { CreateMLCEngine, prebuiltAppConfig } from "https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.86/+esm";
+
+const MODEL_ID = "gemma-4-E2B-it-q4f16_1-MLC";
+const record = prebuiltAppConfig.model_list.find((m) => m.model_id === MODEL_ID);
+const REPO = record.model.replace("https://huggingface.co/", "");
+const BASE = `https://huggingface.co/${REPO}/resolve/main/`;
+const SKIP = [".gitattributes", "LICENSE", "README.md"];
+
+const $ = (id) => document.getElementById(id);
+const status = (t) => ($("status").textContent = t);
+// bundle key for a URL: path inside the HF repo, or the full URL (model library wasm)
+const keyOf = (url) => url.includes("/resolve/main/") ? decodeURIComponent(url.split("/resolve/main/")[1].split("?")[0]) : url;
+
+if (!navigator.gpu) status("WebGPU not available in this browser.");
+
+// Bundle format: 12-char header length, JSON index {key: [offset, size]}, then the files back to back.
+// ponytail: homemade container, swap for tar if anything else ever needs to read it
+
+// ---- 1. Download: fetch every model file + the compiled model library, save as ONE file ----
+$("dl").onclick = async () => {
+  $("dl").disabled = true;
+  try {
+    const tree = await (await fetch(`https://huggingface.co/api/models/${REPO}/tree/main?recursive=1`)).json();
+    const urls = tree.filter((f) => f.type === "file" && !SKIP.includes(f.path)).map((f) => BASE + f.path);
+    urls.push(record.model_lib);
+    const keys = [], blobs = [];
+    let done = 0;
+    for (const [i, url] of urls.entries()) {
+      status(`Downloading ${i + 1}/${urls.length} (${(done / 1e9).toFixed(2)} GB so far)`);
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
+      const blob = await res.blob(); // big blobs are kept on disk by the browser, not in RAM
+      keys.push(keyOf(url)); blobs.push(blob); done += blob.size;
+    }
+    const index = {};
+    let offset = 0;
+    keys.forEach((k, i) => { index[k] = [offset, blobs[i].size]; offset += blobs[i].size; });
+    const json = JSON.stringify(index);
+    const header = String(json.length).padStart(12, "0") + json;
+    Object.assign(document.createElement("a"), {
+      href: URL.createObjectURL(new Blob([header, ...blobs])),
+      download: "gemma-4-e2b-webllm.bin",
+    }).click();
+    status("Saved gemma-4-e2b-webllm.bin. Click Run and pick that file.");
+  } catch (e) { status("Download failed: " + e.message); console.error(e); }
+  $("dl").disabled = false;
+};
+
+// ---- 2. Run: WebLLM reads everything through the Cache API; point that at the bundle ----
+let bundle = null, index = {};
+const bundleCache = {
+  async match(req) {
+    const e = index[keyOf(typeof req === "string" ? req : req.url)];
+    return e ? new Response(bundle.slice(e[0], e[0] + e[1])) : undefined;
+  },
+  async add(req) { throw new Error("Not in model file: " + (req.url ?? req)); },
+  async keys() { return Object.keys(index).map((k) => new Request(k.startsWith("http") ? k : BASE + k)); },
+  async delete() { return false; },
+};
+// ponytail: replaces the page's Cache API, fine since nothing else on this page uses it
+Object.defineProperty(window, "caches", { value: { open: async () => bundleCache }, configurable: true });
+
+const chooseFile = () => new Promise((resolve) => {
+  const input = Object.assign(document.createElement("input"), { type: "file", accept: ".bin" });
+  input.onchange = () => resolve(input.files[0]);
+  input.click();
+});
+
+let engine;
+$("run").onclick = async () => {
+  const file = await chooseFile();
+  if (!file) return;
+  try {
+    const len = +(await file.slice(0, 12).text());
+    index = JSON.parse(await file.slice(12, 12 + len).text());
+    bundle = file.slice(12 + len);
+    if (!index["mlc-chat-config.json"] || !index[record.model_lib]) throw 0;
+  } catch { return status("That isn't the gemma-4-e2b-webllm.bin file from the Download button."); }
+
+  $("run").disabled = $("dl").disabled = true;
+  // WebLLM waits for the GPU after every one of ~1700 weight uploads. Firefox answers each wait in ~100 ms
+  // (Chrome: ~instantly), so loading takes minutes. During load, only really wait every 32nd time;
+  // uploads stay in order on the GPU queue, so skipping the waits in between is safe.
+  const q = globalThis.GPUQueue?.prototype ?? {}, realDone = q.onSubmittedWorkDone;
+  let calls = 0;
+  if (/firefox/i.test(navigator.userAgent)) {
+    q.onSubmittedWorkDone = function () { return ++calls % 32 ? Promise.resolve() : realDone.call(this); };
+  }
+  try {
+    engine = await CreateMLCEngine(MODEL_ID, {
+      initProgressCallback: (p) => status(p.text),
+    });
+    q.onSubmittedWorkDone = realDone;
+    // Firefox needs ~40 s to compile the prompt-reading attention kernel (batch_prefill_ragged_kv): Firefox's
+    // shader translator zero-fills its 24 KB of shared memory one value at a time and DXC chokes on that.
+    // Reading the prompt 1 token per step makes WebLLM use the decode attention kernels instead, which compile
+    // in milliseconds. ponytail: long pasted prompts read at decode speed (~20 tok/s) in Firefox.
+    if (/firefox/i.test(navigator.userAgent)) engine.loadedModelIdToPipeline.get(MODEL_ID).prefillChunkSize = 1;
+    // Warm-up: compiles the remaining small GPU programs now, so message 1 is as fast as the rest.
+    const tw = performance.now();
+    const tick = setInterval(() => status(`Warming up GPU… ${((performance.now() - tw) / 1000).toFixed(0)}s`), 500);
+    try {
+      await engine.chat.completions.create({ messages: [{ role: "user", content: "hi" }], max_tokens: 2, temperature: 0 });
+      await engine.resetChat();
+    } finally { clearInterval(tick); }
+    status("Ready.");
+    $("q").disabled = $("send").disabled = false;
+    $("q").placeholder = "Say something… (Enter to send)";
+    $("q").focus();
+  } catch (e) {
+    q.onSubmittedWorkDone = realDone;
+    status("Run failed: " + e.message);
+    console.error(e);
+    $("run").disabled = $("dl").disabled = false;
+  }
+};
+
+// Free the GPU memory when the tab closes or reloads. Firefox was keeping the model's VRAM after the tab was gone.
+addEventListener("pagehide", () => { try { engine?.unload(); } catch {} });
+
+// ---- Chat ----
+const history = [];
+const add = (role, text) => {
+  const d = Object.assign(document.createElement("div"), { className: `msg ${role}`, textContent: text });
+  $("log").append(d);
+  d.scrollIntoView();
+  return d;
+};
+
+$("q").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("f").requestSubmit(); }
+});
+
+$("f").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const text = $("q").value.trim();
+  if (!text || !engine) return;
+  $("q").value = "";
+  $("q").disabled = $("send").disabled = true;
+
+  add("user", text);
+  history.push({ role: "user", content: text });
+  const out = add("assistant", "");
+  const start = performance.now();
+  let reply = "", t0 = 0, n = 0;
+
+  try {
+    const stream = await engine.chat.completions.create({
+      messages: history, stream: true, temperature: 0, max_tokens: 1024,
+      stream_options: { include_usage: true },
+    });
+    for await (const chunk of stream) {
+      const delta = chunk.choices[0]?.delta?.content;
+      if (delta) {
+        // speed counted from the first token, so prompt processing doesn't drag the number down
+        if (!t0) t0 = performance.now(); else n++;
+        reply += delta;
+        out.textContent = reply;
+        out.scrollIntoView();
+        status(`${(n / ((performance.now() - t0) / 1000)).toFixed(1)} tok/s · first token after ${((t0 - start) / 1000).toFixed(1)}s`);
+      }
+      const s = chunk.usage?.extra?.decode_tokens_per_s;
+      if (s) status(`${s.toFixed(1)} tok/s · first token after ${((t0 - start) / 1000).toFixed(1)}s`);
+    }
+    history.push({ role: "assistant", content: reply });
+  } catch (err) {
+    out.textContent = "Error: " + err.message;
+    history.pop(); // drop the failed user turn
+    console.error(err);
+  }
+  $("q").disabled = $("send").disabled = false;
+  $("q").focus();
+});
+</script>
+</body>
+</html>
