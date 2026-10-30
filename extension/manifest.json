@@ -15,6 +15,7 @@
     }
   },
   "permissions": [
+    "storage",
     "unlimitedStorage",
     "https://huggingface.co/*",
     "https://*.hf.co/*",

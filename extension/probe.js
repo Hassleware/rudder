@@ -53,9 +53,12 @@ export const sentences = (text) => (text.match(/[^.!?\n]*(?:[.!?\n]+|$)\s*/g) ??
 // alarms on ordinary text, the judge runs about 5 times per 1,000 ordinary words.
 export const CASCADE = { gate: 1.5, certain: 8, w: 2, t: -8 };
 // one sentence's verdict; judge() is only called in the unsure band. score > 0 means blocked.
-export async function cascade(peak, best3, judge) {
-  if (peak <= CASCADE.gate) return { verdict: "clear", score: peak - CASCADE.gate - 50 };
-  if (best3 >= CASCADE.certain) return { verdict: "blocked", score: 50 + best3 };
-  const margin = await judge(), ensemble = peak + CASCADE.w * margin;
-  return { verdict: ensemble > CASCADE.t ? "judge: blocked" : "judge: cleared", score: ensemble - CASCADE.t, margin, ensemble };
+export async function cascade(peak, best3, judge, rule = CASCADE) {
+  if (peak <= rule.gate) return { verdict: "clear", score: peak - rule.gate - 50 };
+  if (best3 >= rule.certain) return { verdict: "blocked", score: 50 + best3 };
+  const margin = await judge(), ensemble = peak + rule.w * margin;
+  return { verdict: ensemble > rule.t ? "judge: blocked" : "judge: cleared", score: ensemble - rule.t, margin, ensemble };
 }
+// YouTube titles (one short line + channel): the judge's "No" counts for more. Tuned by hand-labelling 132 judged
+// home-feed videos for "anything about gaming" / "anything about AI" (2026-10-30): wrong blocks 9 → 6, misses 4 → 5.
+export const CASCADE_TITLES = { ...CASCADE, t: -4.5 };

@@ -47,6 +47,42 @@ fn _uk4h(p : vec2<u32>) -> vec4<f16> { return vec4<f16>(vec4<f32>(unpack2x16floa
   return code;
 }
 
+// Firefox build-time fix for the prompt reader (batch_prefill_*_kernel, ~18 s to build): its two big f16 shared arrays
+// (q and k tiles, 4096 values each) are also stored packed, two f16 per u32. Each thread writes four values at once:
+// q's four sit together (at a multiple of 4); k's are 8 apart, so k's slots are reordered (a fixed permutation of where
+// values live) to put them together. Only storage changes; every value read is the one written.
+function packPrefillF16(code) {
+  // [array, slot of value i, its place in the slot]
+  const plans = [["v_8", (i) => `((${i}) >> 2u)`, (i) => `((${i}) & 3i)`], ["v_9", (i) => `((((${i}) >> 5u) << 3u) + ((${i}) & 7i))`, (i) => `(((${i}) >> 3u) & 3i)`]];
+  for (const [name, slot, comp] of plans) {
+    const decl = `var<workgroup> ${name} : array<f16, 4096>;`;
+    if (!code.includes(decl)) return null;
+    // the writes: four lines "X[i0] = E[0]; … X[i3] = E[3];" become one packed store at i0's slot
+    let writes = 0;
+    code = code.replace(new RegExp(String.raw`${name}\[([^\n]+?)(?: \+ 0|\[0\])\] = ([^\n]+?)\[0\];\n\s*${name}\[[^\n]+\] = \2\[1\];\n\s*${name}\[[^\n]+\] = \2\[2\];\n\s*${name}\[[^\n]+\] = \2\[3\];`, "g"), (_, i, e) => {
+      writes++;
+      const at = /^v__\d+$/.test(i) && code.includes(`let ${i} : vec4<i32>`) ? `${i}[0]` : i;
+      return `${name}@W[${slot(at)}] = _pq4h(${e});`; // marked so the reads below skip it
+    });
+    if (writes !== 2) return null; // not the shape this was written for
+    // the reads: X[i] -> the value's place in its unpacked slot
+    const re = new RegExp(String.raw`\b${name}\[`, "g");
+    let out = "", last = 0, m;
+    while ((m = re.exec(code))) {
+      let depth = 1, j = re.lastIndex;
+      for (; depth; j++) { if (code[j] === "[") depth++; else if (code[j] === "]") depth--; }
+      const i = code.slice(re.lastIndex, j - 1);
+      out += code.slice(last, m.index) + `_uq4h(${name}[${slot(i)}])[${comp(i)}]`;
+      last = re.lastIndex = j;
+    }
+    code = (out + code.slice(last)).replace(decl, `var<workgroup> ${name} : array<vec2<u32>, 1024>;`).replaceAll(`${name}@W[`, `${name}[`);
+  }
+  return code + `
+fn _pq4h(v : vec4<f16>) -> vec2<u32> { return vec2<u32>(pack2x16float(vec2<f32>(v.xy)), pack2x16float(vec2<f32>(v.zw))); }
+fn _uq4h(p : vec2<u32>) -> vec4<f16> { return vec4<f16>(vec4<f32>(unpack2x16float(p.x), unpack2x16float(p.y))); }
+`;
+}
+
 const CHUNK_LSE_SMALL = `@group(0) @binding(0) var<storage, read> A_ptr : array<f32>;
 @group(0) @binding(1) var<storage, read_write> chunked_max_ptr : array<f32>;
 @group(0) @binding(2) var<storage, read_write> chunked_sum_ptr : array<f32>;
@@ -134,7 +170,10 @@ if (navigator.gpu && /firefox/i.test(navigator.userAgent)) {
   const realModule = GPUDevice.prototype.createShaderModule;
   GPUDevice.prototype.createShaderModule = function (d) {
     if (d.code.length > 100000 && d.code.includes("fn chunk_lse_kernel(")) d = { ...d, code: CHUNK_LSE_SMALL };
-    else if (d.code.includes("var<workgroup>") && d.code.includes("vec4<f16>")) d = { ...d, code: packWorkgroupF16(d.code) };
+    else if (d.code.includes("var<workgroup>") && d.code.includes("vec4<f16>")) {
+      const code = d.code.includes("fn batch_prefill_") ? (packPrefillF16(d.code) ?? d.code) : d.code;
+      d = { ...d, code: packWorkgroupF16(code) };
+    }
     return realModule.call(this, d);
   };
 }
@@ -167,7 +206,7 @@ if (navigator.gpu) {
   // are views into that one block.
   const STAGE = 12 << 20; // ponytail: 12 MB per word fits ~1300 outputs x 8 KB; outputs past it are skipped
   const SLOTS = 2048; // max outputs per word (word 1, the last prompt-reading pass, has ~1262)
-  const snap = { on: false, cur: null, runs: {}, reads: [], pool: [], trash: [], stepStart: null, only: null, maxSteps: 0, bytes: 0, device: null };
+  const snap = { on: false, cur: null, runs: {}, reads: [], pool: [], trash: [], stepStart: null, only: null, run: null, maxSteps: 0, bytes: 0, device: null };
   const outsOf = new WeakMap(), kernelOf = new WeakMap(), entriesOf = new WeakMap(), ours = new WeakSet();
   {
     // a kernel's outputs are its read_write storage bindings
@@ -215,6 +254,7 @@ if (navigator.gpu) {
     const c = (cp ??= copyKernel(snap.device)), st = (snap.cur ??= { off: 0, recs: [] });
     if (snap.stepStart?.test(k.name) && st.recs.length) { st.recs = []; st.off = 0; snap.runs = {}; } // a prompt-reading pass that picked no word: overwrite it
     const run = (snap.runs[k.name] = (snap.runs[k.name] ?? 0) + 1);
+    if (snap.run && run !== snap.run) return; // only that run (e.g. layer 7's output)
     for (const o of k.outs) {
       const r = entries.find((e) => e.binding === o.binding)?.resource;
       if (!r?.buffer) continue;
@@ -270,8 +310,9 @@ if (navigator.gpu) {
   globalThis.gpuSnapshot = {
     // bytes: copy only the first N bytes of each output (8 KB holds a word's 1536-number hidden state)
     // only: copy only kernels whose name matches (the filter probe takes just the 35 layer outputs)
-    start({ stepStart = null, only = null, maxSteps = 100, bytes = 8192 } = {}) {
-      Object.assign(snap, { on: true, cur: null, runs: {}, reads: [], stepStart, only, maxSteps, bytes });
+    // run: copy only the n-th time a matching kernel runs in a step (one layer's output)
+    start({ stepStart = null, only = null, run = null, maxSteps = 100, bytes = 8192 } = {}) {
+      Object.assign(snap, { on: true, cur: null, runs: {}, reads: [], stepStart, only, run, maxSteps, bytes });
     },
     tick: () => snapTick(), // close the current step yourself (after the GPU work is submitted, e.g. device.sync())
     async stop() {
