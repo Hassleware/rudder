@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Gemma</title>
+<style>
+  :root { color-scheme: light dark; font-family: system-ui, sans-serif; font-size: 14px; }
+  body { margin: 0; width: 420px; height: 560px; display: flex; flex-direction: column; padding: 10px; box-sizing: border-box; }
+  header { display: flex; align-items: center; gap: 8px; }
+  header h1 { font-size: 15px; margin: 0; flex: 1; }
+  #log { flex: 1; overflow-y: auto; margin: 8px 0; }
+  .msg { white-space: pre-wrap; padding: 7px 10px; border-radius: 8px; margin: 5px 0; }
+  .user { background: #8884; margin-left: 15%; }
+  .assistant { background: #4a84; margin-right: 15%; }
+  .error { background: #c444; }
+  form { display: flex; gap: 6px; }
+  textarea { flex: 1; font: inherit; padding: 6px; resize: none; }
+  button { font: inherit; padding: 4px 10px; }
+  #status { font-size: 12px; opacity: .7; min-height: 1.2em; }
+</style>
+</head>
+<body>
+  <header><h1>Gemma 4 E2B</h1><button id="clear" title="Start a new chat">New chat</button></header>
+  <div id="status"></div>
+  <div id="setup" hidden>
+    <p>The model (~2.9 GB) isn't installed in the extension yet.</p>
+    <button id="download">Download (2.9 GB)</button>
+    <button id="import">Import model file…</button>
+  </div>
+  <div id="log"></div>
+  <form id="f">
+    <textarea id="q" rows="2" placeholder="Say something… (Enter to send)"></textarea>
+    <button id="send">Send</button>
+  </form>
+  <script src="popup.js"></script>
+</body>
+</html>
