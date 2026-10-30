@@ -2,8 +2,10 @@
 // already has or downloads:
 //   - the page's own data (ytInitialData, read inside the page by youtube/page.js): the first videos (id, title,
 //     channel, thumbnail address). Its HTML can come through YouTube's service worker, so it isn't read off the network.
-//   - the page's youtubei/v1/browse and /next responses (Firefox webRequest.filterResponseData, every byte passed on
-//     unchanged): the videos YouTube adds as you scroll, on the home page and in a watch page's related list
+//   - the page's youtubei/v1 responses (Firefox webRequest.filterResponseData, every byte passed on unchanged): browse
+//     (home and channel pages as you scroll), next (a watch page's related list), search (more results as you scroll)
+//     reel/reel_watch_sequence (the Shorts viewer's next shorts; the next one with its title) and player (each video's
+//     details as the page is about to play it: how the Shorts viewer gets the rest of its titles)
 //   - the page's thumbnail downloads from i.ytimg.com (same way): the image bytes, before the page decodes them
 // youtube/feed.js keeps each home tile hidden until verdict() says it may be shown: after its title has been read,
 // the filter (setJudge) has passed it and its thumbnail has been read. Rejected tiles are removed from the grid.
@@ -33,6 +35,8 @@ function find(obj, key) {
   for (const k in obj) { const r = find(obj[k], key); if (r !== undefined) return r; }
   return undefined;
 }
+// on a channel's own page the tiles show a view count ("9.2M views") where other tiles show the channel
+const notCount = (t) => (t && /^[\d.,]+\s*[KMB]?(\s+views?)?$/i.test(t) ? null : t);
 const largest = (list) => (list?.length ? list.reduce((a, b) => ((b.width ?? 0) > (a.width ?? 0) ? b : a)).url : null);
 
 // Any video in YouTube's JSON, in document order (= the grid's left → right, top → bottom). Searches by shape rather
@@ -50,7 +54,7 @@ function collect(node, out, shelf = false) {
     const m = l.metadata?.lockupMetadataViewModel;
     if (id) out.push({
       id, title: text(m?.title), shelf, mix: playlist,
-      channel: text(m?.metadata?.contentMetadataViewModel?.metadataRows?.[0]?.metadataParts?.[0]?.text),
+      channel: notCount(text(m?.metadata?.contentMetadataViewModel?.metadataRows?.[0]?.metadataParts?.[0]?.text)),
       thumbnail: largest(find(l.contentImage, "sources")),
     });
     return;
@@ -67,14 +71,25 @@ function collect(node, out, shelf = false) {
     if (id) out.push({ id, title: text(s.overlayMetadata?.primaryText), channel: null, thumbnail: thumb, shelf: true, short: true });
     return;
   }
+  // a video's player data (a player response, or the Shorts viewer's next short): title and channel
+  const d = node.videoDetails;
+  if (d?.videoId && d.title) {
+    out.push({ id: d.videoId, title: d.title, channel: d.author ?? null, thumbnail: largest(d.thumbnail?.thumbnails), shelf: true });
+    return;
+  }
   for (const k in node) collect(node[k], out, shelf);
 }
 
 function learn(json, source, tabId) {
-  const found = [];
+  const found = [], owner = json?.metadata?.channelMetadataRenderer?.title; // a channel page: its videos are the owner's
   collect(json, found);
+  if (owner) for (const v of found) v.channel ??= owner;
   for (const v of found) {
-    if (!videos.has(v.id)) { videos.set(v.id, { ...v, order: ++order, source, seenAt: now() }); enqueue(videos.get(v.id)); } // judge ahead
+    const old = videos.get(v.id);
+    if (!old) videos.set(v.id, { ...v, order: ++order, source, seenAt: now() });
+    else if (!old.title && v.title) Object.assign(old, { ...v, source, seenAt: old.seenAt ?? now() }, { image: old.image, imageType: old.imageType, imageAt: old.imageAt }); // its thumbnail came first
+    else continue;
+    enqueue(videos.get(v.id)); // judge ahead
   }
   if (found.length) poke(tabId);
 }
@@ -83,12 +98,8 @@ function learn(json, source, tabId) {
 const poke = (tabId) => { if (tabId >= 0) browser.tabs.sendMessage(tabId, { type: "yt-ready" }).catch(() => {}); };
 
 browser.webRequest.onBeforeRequest.addListener((d) => tap(d, (bytes) => {
-  learn(JSON.parse(new TextDecoder().decode(bytes)), "browse", d.tabId);
-}), { urls: ["https://www.youtube.com/youtubei/v1/browse*"] }, ["blocking"]); // any type: YouTube's service worker may make it
-
-browser.webRequest.onBeforeRequest.addListener((d) => tap(d, (bytes) => {
-  learn(JSON.parse(new TextDecoder().decode(bytes)), "next", d.tabId);
-}), { urls: ["https://www.youtube.com/youtubei/v1/next*"] }, ["blocking"]); // the watch page's related videos
+  learn(JSON.parse(new TextDecoder().decode(bytes)), new URL(d.url).pathname.split("/").pop(), d.tabId);
+}), { urls: ["browse*", "next*", "search*", "reel/reel_watch_sequence*", "player*"].map((p) => "https://www.youtube.com/youtubei/v1/" + p) }, ["blocking"]); // any type: YouTube's service worker may make them
 
 browser.webRequest.onBeforeRequest.addListener((d) => {
   const id = d.url.match(/\/vi(?:_webp)?\/([\w-]{11})\//)?.[1];
@@ -177,7 +188,7 @@ async function work() {
 // "block" if the filter rejected it. A tile whose data never came through (e.g. added while scrolling) is judged on the
 // title and channel the page shows in the tile itself. If the page drew the thumbnail from its own memory (no download
 // for us to read), it's allowed after 2 s, and marked so.
-export function verdict({ id, imageLoaded, title, channel, dist }) {
+export function verdict({ id, imageLoaded, title, channel, dist, viewer }) {
   let v = videos.get(id);
   if (!v && title) videos.set(id, (v = { id, title, channel, order: ++order, source: "tile", seenAt: now() }));
   if (v && !v.title && title) Object.assign(v, { title, channel: v.channel ?? channel, source: "tile", seenAt: v.seenAt ?? now() });
@@ -185,7 +196,7 @@ export function verdict({ id, imageLoaded, title, channel, dist }) {
   v.dist = dist;
   if (!v.filter) { enqueue(v); return "wait"; }
   if (v.filter.blocked) return "block";
-  if (!v.image) {
+  if (!v.image && !viewer) { // the Shorts viewer plays the video itself: no thumbnail to wait for
     if (!imageLoaded) return "wait";
     v.imageLoadedAt ??= now();
     if (now() - v.imageLoadedAt < 2000) return "wait";
