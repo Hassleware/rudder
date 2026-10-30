@@ -11,5 +11,6 @@ export default {
     firefoxProfile: path.join(import.meta.dirname, ".dev-profile"), // absolute: Store Firefox starts in another folder
     profileCreateIfMissing: true,
     keepProfileChanges: true,
+    startUrl: ["https://www.youtube.com"],
   },
 };

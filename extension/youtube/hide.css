@@ -1,0 +1,5 @@
+/* Home tiles stay invisible until youtube/feed.js marks them gemma-verdict="show" (an attribute + CSS).
+   visibility keeps each tile's size, so the grid doesn't jump and YouTube still loads thumbnails as tiles near the screen. */
+ytd-browse[page-subtype="home"] ytd-rich-item-renderer:not([gemma-verdict="show"]) {
+  visibility: hidden !important;
+}
