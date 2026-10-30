@@ -113,19 +113,25 @@ function setWord(w) {
   render();
 }
 
-// this word's filter score and confidence (computed in the background page; method in probe.js)
+// this word's probe score and its sentence's cascade verdict (computed in the background page; rule in probe.js)
+const marked = (f, k) => {
+  const v = f?.verdict[k];
+  if (!v || !(f.smooth[k] > f.gate)) return "";
+  return v.score > 0 ? "blocked" : v.margin !== undefined ? "cleared" : "";
+};
 function showFilter() {
   const f = data?.filter;
   if (!f) return ($("filterinfo").textContent = "No filter set.");
-  const fires = f.smooth[word] > f.threshold, c = f.conf[word];
-  $("filterinfo").className = fires ? c.tier : "";
-  $("filterinfo").textContent = `"${f.sentence}": this word ${f.smooth[word].toFixed(1)} (with the next 2 words; fires above ${f.threshold})` +
-    ` · last 16 words: ${c.hits} over, top-3 average ${c.top3.toFixed(1)}` + (fires ? ` · FIRES, ${c.tier.toUpperCase()} confidence` : "");
-  $("filterinfo").title = "Score = how far this word's layer-7 output points towards the filter sentence, in units of ordinary text's " +
-    "spread (0 = typical ordinary text), smoothed and averaged with the next two words so context can settle the meaning. " +
-    "The same threshold works for any sentence; about 1% of ordinary passages go over it.\n\n" +
-    "Confidence = how many of the last 16 words are over it: 1 low (often a look-alike like 'spelling bee'), 2 medium, 3+ high. " +
-    "Top-3 average = the mean of the 3 highest scores in those 16 words, a finer version of the same idea.";
+  const v = f.verdict[word];
+  if (!v) return ($("filterinfo").textContent = `"${f.sentence}": no score for the last word (its state is never computed).`);
+  $("filterinfo").className = v.score > 0 ? "blocked" : v.margin !== undefined ? "cleared" : "";
+  const why = v.verdict === "clear" ? `probe peak ${v.peak.toFixed(1)} ≤ ${f.gate}, no judge needed`
+    : v.verdict === "blocked" ? `probe certain: top-3 average ${v.top3.toFixed(1)} ≥ ${f.certain}`
+    : `probe peak ${v.peak.toFixed(1)} + ${f.w} × judge ${v.margin.toFixed(1)} = ${v.ensemble.toFixed(1)} ${v.ensemble > f.t ? ">" : "≤"} ${f.t}`;
+  $("filterinfo").textContent = `"${f.sentence}": this word ${f.smooth[word].toFixed(1)} · its sentence: ${v.verdict.toUpperCase()} (${why})`;
+  $("filterinfo").title = "Probe: one dot product per word on layer 7, in units of ordinary text's spread, smoothed and averaged with the " +
+    `next two words. Each sentence: probe peak ≤ ${f.gate} → clear; top-3 average ≥ ${f.certain} → blocked; otherwise Gemma ` +
+    `judges the sentence alone (margin = logit Yes − logit No) and probe peak + ${f.w} × margin > ${f.t} blocks it.`;
 }
 const bg = browser.extension.getBackgroundPage();
 $("filterText").value = bg?.filterSentence() ?? "";
@@ -143,7 +149,8 @@ if (!steps.length) {
   $("reply").replaceChildren(...words.map((w, k) => {
     const s = Object.assign(document.createElement("span"), { textContent: w.text.replace(/\n/g, "↵"), title: `Word ${k + 1}: ${quote(w.text)} (id ${w.id})` });
     s.onclick = () => setWord(k);
-    if (data.filter?.smooth[k] > data.filter.threshold) s.classList.add(data.filter.conf[k].tier);
+    const m = marked(data.filter, k);
+    if (m) s.classList.add(m);
     return s;
   }));
   // colour key: click a stage to show only that stage

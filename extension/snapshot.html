@@ -18,15 +18,13 @@
   #reply span { white-space: pre; cursor: pointer; border-radius: 3px; padding: 1px 0; }
   #reply span:hover { background: #8884; }
   #reply span.on { background: #6aa84f; color: white; }
-  #reply span.low { box-shadow: inset 0 -3px #e6b800; }
-  #reply span.medium { box-shadow: inset 0 -3px #f07c00; }
-  #reply span.high { box-shadow: inset 0 -3px #d33; }
+  #reply span.blocked { box-shadow: inset 0 -3px #d33; }
+  #reply span.cleared { box-shadow: inset 0 -2px #999; text-decoration: underline dotted #999; }
   .filter { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 13px; }
   .filter input { flex: 0 1 320px; font: inherit; padding: 3px 6px; }
   #filterinfo { white-space: pre; overflow: hidden; text-overflow: ellipsis; }
-  #filterinfo.low { color: #b38f00; font-weight: 600; }
-  #filterinfo.medium { color: #f07c00; font-weight: 600; }
-  #filterinfo.high { color: #d33; font-weight: 600; }
+  #filterinfo.blocked { color: #d33; font-weight: 600; }
+  #filterinfo.cleared { color: #888; font-weight: 600; }
   .content { flex: 1; display: flex; min-height: 0; }
   aside { width: 440px; display: flex; flex-direction: column; border-right: 1px solid #8886; }
   #filter { margin: 8px 8px 4px; padding: 5px; font: inherit; }
@@ -63,7 +61,7 @@
       <span id="filterinfo"></span>
       <a href="bench/bench.html" target="_blank">benchmark</a>
     </div>
-    <div class="label">Reply (click a word; underline = the filter fires: yellow low, orange medium, red high confidence):</div>
+    <div class="label">Reply (click a word; red underline = blocked, grey dotted = the probe was unsure and the judge cleared it):</div>
     <div id="reply"></div>
   </header>
   <div class="content">
