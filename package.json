@@ -1,0 +1,17 @@
+{
+  "name": "gemma-firefox-extension",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "postinstall": "node -e \"require('fs').mkdirSync('extension/vendor',{recursive:true});require('fs').copyFileSync('node_modules/@mlc-ai/web-llm/lib/index.js','extension/vendor/web-llm.js')\"",
+    "start": "web-ext run",
+    "lint": "web-ext lint --ignore-files \"vendor/**\"",
+    "build": "web-ext build --overwrite-dest"
+  },
+  "devDependencies": {
+    "web-ext": "10.8.0"
+  },
+  "dependencies": {
+    "@mlc-ai/web-llm": "0.2.86"
+  }
+}
