@@ -85,6 +85,26 @@ Commands:
 - First time in a new folder: run `npm install`.
 - Why manifest v2: it's the only way to get a background page that stays alive in Firefox, which the model needs.
 
+## Thumbnails (Gemma 4's eyes, research only so far)
+
+- **Our WebLLM build has no vision** (its manifest: text + audio; "vision weights are excluded"). Gemma 4's own vision encoder ships separately in the ONNX build (`onnx-community/gemma-4-E2B-it-ONNX`, `vision_encoder_q4`, 99 MB + 0.2 MB graph). Its output (`image_features` [tokens × 1536]) goes straight into our model through the same entry point WebLLM uses for audio: `artifactPrefillAndForward(embeddings, [258880…], modality 1)` between `<|image>` (255999) and `<image|>` (258882). Preprocessing = transformers.js `Gemma4ImageProcessor`: aspect-preserving resize to a multiple of 48 px, /255, 16×16 patches in HWC order with [col, row] positions, 3×3 pooling → a 320×180 thumbnail at the 70-token budget is 528×288 px → **66 image tokens**.
+- **It sees:** "a steam locomotive pulling a train… with a dramatic cloud of smoke", "a man, a fluffy puppy, and a black puppy, with text proclaiming a 'Puppy Guide!'", and reads text-only thumbnails exactly ("I LOST $10K AT THE CASINO"). Small subjects (bees on comb) come out vague at 70 tokens.
+- **Text filters fire on images** (`research/thumb-bench.mjs`, thumbnails and scripts in `research/thumbs/`): 130 thumbnails = 40 real on-topic (4 per filter topic, from YouTube search), 20 text-only (topic only as words on a plain background), 30 look-alikes (spelling bee, glue gun, hot dog contest, lake swimming…), 30 ordinary + 10 neutral-text. Each goes into Gemma under the title "My weekend vlog"; the existing text probes score its image tokens. Calibrated per filter on 20 ordinary thumbnails only (mean and spread of the image score), threshold = the highest calibration score:
+  - AUROC 0.96 (top-3 image tokens; 0.93 for the mean of all image tokens)
+  - on-topic photos 80%, **text-only thumbnails 95%**, look-alikes 20%, other topics 8%, ordinary test thumbnails 3%
+  - strong: dogs, crypto, guns, space, gambling, cooking photos (scores 6–21); weak: football match photos (all missed; the football filter is weak in text too), illness (doctor/flu photos), some bee-hive close-ups. Look-alikes that fire look the part (hot glue guns, lake swimming for "ocean").
+  - images sit at their own per-filter baseline (e.g. any image ≈ 4.2 under "bees", ≈ 2 under "dogs"), so calibrating on ordinary *thumbnails* matters for the threshold (AUROC doesn't change).
+- **Cost:** encoder 4.7 s per thumbnail single-threaded in Firefox (onnxruntime-web, CPU; its WebGPU backend would share the GPU with our patched WebGPU code), 0.2 s on 32 CPU threads in Node; Gemma reading the 66 image tokens ~0.6 s. The judge isn't usable on images yet (it leans "Yes" for any image with an uninformative title).
+
+## YouTube home feed reader (`extension/youtube/`, not linked to the filter yet)
+
+Sees every video's title and thumbnail **before the page shows it**, with no requests of its own, no scrolling and no screenshots; only the browser's own traffic and the page's own data.
+- `page.js` is injected into the page by `feed.js` and reads the page's own `ytInitialData` the moment YouTube sets it (and `yt-navigate-finish` data). The home HTML comes through YouTube's service worker, so it isn't read off the network.
+- `intercept.js` (background) turns that data into videos (id, title, channel, thumbnail address; Mixes by their first video, Shorts from `thumbnailViewModel.thumbnailViewModel.image.sources`), reads the bytes of every thumbnail the page downloads from `i.ytimg.com` and the page's own `youtubei/v1/browse` responses (Firefox `webRequest.filterResponseData`, bytes passed on unchanged). `verdict()` is where the filter will plug in; for now it waits until title and thumbnail are both read.
+- `hide.css` + `feed.js` keep every home tile invisible (it keeps its size, so layout and lazy loading are normal) until its verdict is "show".
+- Test (no scrolling, 2048×1019 window): 41 videos read, all with titles and thumbnail addresses; the page downloaded 14 thumbnails and all 14 were read; every tile on screen was shown, each only after its title (~200 ms before) and thumbnail (30–100 ms before) were read. YouTube only downloads thumbnails for tiles near the screen, so the rest arrive as you scroll. Results: `youtube-read-test.html`, `youtube-home-test.html`.
+- `npm start` opens YouTube; the test profile is signed in.
+
 ## Rules of thumb
 
 - **Measure before you fix.** Count GPU calls and time each program build. Every big win here came from a measurement, not a guess.
