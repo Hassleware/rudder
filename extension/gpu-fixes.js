@@ -150,7 +150,145 @@ if (navigator.gpu) {
   GPUAdapter.prototype.requestDevice = async function (...a) {
     const d = await realRequestDevice.apply(this, a);
     queue = d.queue;
+    snap.device = d;
     return d;
+  };
+
+  // Snapshot: see the activations layer by layer, for every word of a reply. gpuSnapshot.start() copies the output
+  // of every GPU job; WebLLM's GPU->CPU read of each picked word closes one step (that word's whole forward pass
+  // plus sampling). gpuSnapshot.stop() resolves to one array per word of [{kernel, run, name, type, bytes, values}]
+  // in launch order. run = how many times this kernel ran in the step (the layer number for per-layer kernels).
+  // stepStart (a kernel-name regex for the first job of a forward pass) drops prompt-reading passes that didn't
+  // pick a word. Costs nothing when off.
+  // Cheap when on: right after each job, inside the same compute pass, a tiny copy kernel copies its outputs side by
+  // side into one collection buffer (splitting the pass or adding a copy command per output halved the speed).
+  // Each copy's offsets live in a slot of a uniform table, rewritten only when they change (they repeat every
+  // word). Per word: one copy to a reusable staging buffer and one mapAsync, while the model carries on; the rows
+  // are views into that one block.
+  const STAGE = 12 << 20; // ponytail: 12 MB per word fits ~1300 outputs x 8 KB; outputs past it are skipped
+  const SLOTS = 2048; // max outputs per word (word 1, the last prompt-reading pass, has ~1262)
+  const snap = { on: false, cur: null, runs: {}, reads: [], pool: [], trash: [], stepStart: null, only: null, maxSteps: 0, bytes: 0, device: null };
+  const outsOf = new WeakMap(), kernelOf = new WeakMap(), entriesOf = new WeakMap(), ours = new WeakSet();
+  {
+    // a kernel's outputs are its read_write storage bindings
+    const csm = GPUDevice.prototype.createShaderModule;
+    GPUDevice.prototype.createShaderModule = function (d) {
+      const mod = csm.call(this, d);
+      outsOf.set(mod, [...d.code.matchAll(/@binding\((\d+)\)\s*var<storage,\s*read_write>\s*(\w+)\s*:\s*array<(?:vec\d<)?(\w+)/g)]
+        .map(([, binding, name, type]) => ({ binding: +binding, name, type })));
+      return mod;
+    };
+    const info = (d, pipe) => { kernelOf.set(pipe, { name: d.compute.entryPoint, outs: outsOf.get(d.compute.module) ?? [] }); return pipe; };
+    const ccp = GPUDevice.prototype.createComputePipeline, ccpa = GPUDevice.prototype.createComputePipelineAsync;
+    GPUDevice.prototype.createComputePipeline = function (d) { return info(d, ccp.call(this, d)); };
+    GPUDevice.prototype.createComputePipelineAsync = function (d) { return ccpa.call(this, d).then((p) => info(d, p)); };
+  }
+  let cp = null; // the copy kernel and its buffers, made on first use
+  const copyKernel = (device) => {
+    const S = GPUShaderStage.COMPUTE, U = GPUBufferUsage;
+    const layout = device.createBindGroupLayout({ entries: [
+      { binding: 0, visibility: S, buffer: { type: "read-only-storage" } },
+      { binding: 1, visibility: S, buffer: { type: "storage" } },
+      { binding: 2, visibility: S, buffer: { type: "uniform", hasDynamicOffset: true } },
+    ] });
+    const module = device.createShaderModule({ code: `
+      struct P { src: u32, dst: u32, count: u32, pad: u32 }
+      @group(0) @binding(0) var<storage, read> src: array<u32>;
+      @group(0) @binding(1) var<storage, read_write> dst: array<u32>;
+      @group(0) @binding(2) var<uniform> p: P;
+      @compute @workgroup_size(256) fn main(@builtin(global_invocation_id) g: vec3<u32>) {
+        if (g.x < p.count) { dst[p.dst + g.x] = src[p.src + g.x]; }
+      }` });
+    return {
+      pipe: device.createComputePipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }), compute: { module, entryPoint: "main" } }),
+      layout,
+      collect: device.createBuffer({ size: STAGE, usage: U.STORAGE | U.COPY_SRC }),
+      params: device.createBuffer({ size: SLOTS * 256, usage: U.UNIFORM | U.COPY_DST }),
+      table: new Uint32Array(SLOTS * 4), // what each slot holds, so unchanged slots aren't rewritten
+      groups: new WeakMap(), // source buffer -> bind group (WebLLM's buffers repeat every word)
+    };
+  };
+  // after each dispatch while recording: copy its outputs before anything reuses those buffers
+  const snapCopy = (pass, pipe, group) => {
+    const k = kernelOf.get(pipe), entries = entriesOf.get(group);
+    if (!k || !entries || (snap.only && !snap.only.test(k.name))) return;
+    const c = (cp ??= copyKernel(snap.device)), st = (snap.cur ??= { off: 0, recs: [] });
+    if (snap.stepStart?.test(k.name) && st.recs.length) { st.recs = []; st.off = 0; snap.runs = {}; } // a prompt-reading pass that picked no word: overwrite it
+    const run = (snap.runs[k.name] = (snap.runs[k.name] ?? 0) + 1);
+    for (const o of k.outs) {
+      const r = entries.find((e) => e.binding === o.binding)?.resource;
+      if (!r?.buffer) continue;
+      const off = r.offset ?? 0, bytes = r.size ?? r.buffer.size - off, n = Math.min(bytes, snap.bytes) & ~3, slot = st.recs.length;
+      if (!n || st.off + n > STAGE || slot >= SLOTS) continue;
+      const t = c.table, j = slot * 4, src = off / 4, dst = st.off / 4, count = n / 4;
+      if (t[j] !== src || t[j + 1] !== dst || t[j + 2] !== count) {
+        t[j] = src; t[j + 1] = dst; t[j + 2] = count;
+        snap.device.queue.writeBuffer(c.params, slot * 256, t, j, 4);
+      }
+      let g = c.groups.get(r.buffer);
+      if (!g) {
+        g = snap.device.createBindGroup({ layout: c.layout, entries: [
+          { binding: 0, resource: { buffer: r.buffer } },
+          { binding: 1, resource: { buffer: c.collect } },
+          { binding: 2, resource: { buffer: c.params, size: 16 } },
+        ] });
+        c.groups.set(r.buffer, g);
+      }
+      pass.setPipeline(c.pipe);
+      pass.setBindGroup(0, g, [slot * 256]);
+      pass.dispatchWorkgroups(Math.ceil(count / 256));
+      st.recs.push({ kernel: k.name, run, name: o.name, type: o.type, bytes, at: st.off, n });
+      st.off += n;
+    }
+  };
+  const TYPES = { f16: Float16Array, f32: Float32Array, i32: Int32Array };
+  const snapRead = async (st, buf) => {
+    await buf.mapAsync(GPUMapMode.READ, 0, st.off);
+    const raw = buf.getMappedRange(0, st.off).slice(0); // one copy per word
+    buf.unmap();
+    (snap.on ? snap.pool : snap.trash).push(buf);
+    for (const r of st.recs) {
+      const T = TYPES[r.type] ?? Uint32Array;
+      r.values = new T(raw, r.at, r.n / T.BYTES_PER_ELEMENT);
+    }
+    return st.recs;
+  };
+  // WebLLM reads each picked word back to the CPU: that closes the current step. WebLLM submits its queued GPU work
+  // just before this read, so one more submit copies the step's outputs out before the next word overwrites them.
+  const snapTick = () => {
+    const st = snap.cur;
+    if (!snap.on || !st?.recs.length) return;
+    const buf = snap.pool.pop() ?? snap.device.createBuffer({ size: STAGE, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+    ours.add(buf);
+    const enc = snap.device.createCommandEncoder();
+    enc.copyBufferToBuffer(cp.collect, 0, buf, 0, st.off);
+    snap.device.queue.submit([enc.finish()]);
+    snap.reads.push(snapRead(st, buf));
+    snap.cur = null; snap.runs = {};
+    if (snap.reads.length >= snap.maxSteps) snap.on = false;
+  };
+  globalThis.gpuSnapshot = {
+    // bytes: copy only the first N bytes of each output (8 KB holds a word's 1536-number hidden state)
+    // only: copy only kernels whose name matches (the filter probe takes just the 35 layer outputs)
+    start({ stepStart = null, only = null, maxSteps = 100, bytes = 8192 } = {}) {
+      Object.assign(snap, { on: true, cur: null, runs: {}, reads: [], stepStart, only, maxSteps, bytes });
+    },
+    tick: () => snapTick(), // close the current step yourself (after the GPU work is submitted, e.g. device.sync())
+    async stop() {
+      snap.on = false;
+      snap.cur = null; // an unfinished step
+      const steps = await Promise.all(snap.reads);
+      snap.trash.push(...snap.pool); // free the staging buffers
+      snap.pool = [];
+      return steps;
+    },
+  };
+  // Staging buffers may still be used by work queued in WebLLM's command encoder; destroy them only after a real submit.
+  const realSubmit = GPUQueue.prototype.submit;
+  GPUQueue.prototype.submit = function (cbs) {
+    const r = realSubmit.call(this, cbs);
+    if (snap.trash.length && cbs.length) { for (const b of snap.trash) b.destroy(); snap.trash = []; }
+    return r;
   };
   // yield to the event loop without setTimeout's 4 ms minimum (one shared channel)
   const chan = new MessageChannel(), wakers = [];
@@ -175,7 +313,10 @@ if (navigator.gpu) {
     return p;
   };
   const m = GPUBuffer.prototype.mapAsync, s = GPUQueue.prototype.onSubmittedWorkDone;
-  GPUBuffer.prototype.mapAsync = function (...a) { return poke(queue, m.apply(this, a)); };
+  GPUBuffer.prototype.mapAsync = function (...a) {
+    if (!ours.has(this)) snapTick();
+    return poke(queue, m.apply(this, a));
+  };
   GPUQueue.prototype.onSubmittedWorkDone = function (...a) { return poke(this, s.apply(this, a)); };
 
   // One compute pass per command encoder instead of one per kernel launch. WebLLM begins and ends a pass around
@@ -195,10 +336,11 @@ if (navigator.gpu) {
       if (desc?.timestampWrites) { closePass(this); return realBegin.call(this, desc); } // keep timed passes separate
       let p = open.get(this);
       if (!p) { p = realBegin.call(this, desc); open.set(this, p); }
+      let pipe, group; // for the snapshot
       return {
-        setPipeline: (x) => p.setPipeline(x),
-        setBindGroup: (...x) => p.setBindGroup(...x),
-        dispatchWorkgroups: (...x) => p.dispatchWorkgroups(...x),
+        setPipeline: (x) => { pipe = x; p.setPipeline(x); },
+        setBindGroup: (...x) => { if (x[0] === 0) group = x[1]; p.setBindGroup(...x); },
+        dispatchWorkgroups: (...x) => { p.dispatchWorkgroups(...x); if (snap.on) snapCopy(p, pipe, group); },
         dispatchWorkgroupsIndirect: (...x) => p.dispatchWorkgroupsIndirect(...x),
         pushDebugGroup: (x) => p.pushDebugGroup(x), popDebugGroup: () => p.popDebugGroup(), insertDebugMarker: (x) => p.insertDebugMarker(x),
         end: () => {}, // the real pass ends with the encoder's next non-pass command or finish()
@@ -255,4 +397,7 @@ if (navigator.gpu) {
       return realWrite.call(this, buf, off, data, dataOff, size);
     };
   }
+  // remember each bind group's buffers (cached groups keep theirs) so the snapshot can find a kernel's outputs
+  const cbg = GPUDevice.prototype.createBindGroup;
+  GPUDevice.prototype.createBindGroup = function (d) { const g = cbg.call(this, d); entriesOf.set(g, d.entries); return g; };
 }
