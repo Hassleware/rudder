@@ -1,5 +1,12 @@
-/* Home tiles stay invisible until youtube/feed.js marks them gemma-verdict="show" (an attribute + CSS).
-   visibility keeps each tile's size, so the grid doesn't jump and YouTube still loads thumbnails as tiles near the screen. */
-ytd-browse[page-subtype="home"] ytd-rich-item-renderer:not([gemma-verdict="show"]) {
+/* Home tiles and the watch page's related videos stay invisible until youtube/feed.js marks them gemma-verdict="show"
+   (an attribute + CSS). visibility keeps each one's size, so nothing jumps and YouTube still loads
+   thumbnails as they near the screen. The video being watched and the playlist panel are never touched. */
+ytd-browse[page-subtype="home"] ytd-rich-item-renderer:not([gemma-verdict="show"]),
+ytd-watch-next-secondary-results-renderer :is(yt-lockup-view-model, ytd-compact-video-renderer):not([gemma-verdict="show"]) {
   visibility: hidden !important;
+}
+/* rejected by the filter (or an ad): taken out, so the rest close up */
+ytd-browse[page-subtype="home"] ytd-rich-item-renderer[gemma-verdict="block"],
+ytd-watch-next-secondary-results-renderer :is(yt-lockup-view-model, ytd-compact-video-renderer)[gemma-verdict="block"] {
+  display: none !important;
 }
