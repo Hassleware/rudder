@@ -1,17 +1,15 @@
-// One-sentence filter, as found by research/probe-research.mjs (2026-10-30; NOTES.md has the numbers).
-// Setup, once per sentence: the model reads the sentence as if it had written it as a chat reply; its layer-7 state at
-// the sentence's last token, minus the average of the same for 25 generic topic sentences ("anything about the
-// weather", …: a Rocchio negative centroid), is the filter's direction.
-// Per token: one dot product with that layer's output (1536 multiply-adds), in units of ordinary text's spread (z),
-// smoothed a little, then averaged with the next two words' scores (context settles the meaning: "spelling bee" vs
-// "honeybee"; research round 8), so a word's verdict comes two words later. It fires above one fixed z for every
-// filter. No examples, no training.
+// One-sentence filter: a cheap probe on every word, cascading into Gemma as a judge (NOTES.md has the numbers).
+// Probe setup, once per sentence (research/probe-research.mjs): the model reads the sentence as if it had written it as
+// a chat reply; its layer-7 state at the sentence's last token, minus the average of the same for 25 generic topic
+// sentences ("anything about the weather", …: a Rocchio negative centroid), is the filter's direction.
+// Per word: one dot product with that layer's output (1536 multiply-adds), in units of ordinary text's spread (z),
+// smoothed a little, then averaged with the next two words' scores so context can settle the meaning.
+// Per sentence: the cascade below decides. No examples, no training.
 export const L = 35, D = 1536;
 // each layer's output kernel (the residual stream after the layer; stages.js calls it "Layer output")
 export const TAP = /_add\d+_multiply\d+(_cast\d+)?_kernel$/;
-// layer index (0-based: layer 7), smoothing, words of look-ahead, and the threshold: z where 1% of ordinary dev
-// passages fire (held-out: 87% of on-topic passages naming the topic, 74% without the word, 27% of look-alikes)
-export const PROBE = { layer: 6, alpha: 0.5, ahead: 2, z: 3.44 };
+// layer index (0-based: layer 7), smoothing, words of look-ahead
+export const PROBE = { layer: 6, alpha: 0.5, ahead: 2 };
 
 export function mean(vs) {
   const m = new Float32Array(D);
@@ -31,39 +29,33 @@ export function makeProbe(f, ref, ordinary) {
   return { w, b: b - mu, sd }; // z = (w·x + b) / sd
 }
 export const score = (p, x) => (dot(p.w, x) + p.b) / p.sd;
-export const ema = (xs, alpha = PROBE.alpha) => { let e; return xs.map((x) => (e = e === undefined ? x : e + alpha * (x - e))); };
+const ema = (xs, alpha = PROBE.alpha) => { let e; return xs.map((x) => (e = e === undefined ? x : e + alpha * (x - e))); };
 // each word's score averaged with the next `ahead` words' (fewer at the end of a text)
-export const settle = (zs) => zs.map((_, i) => { const w = zs.slice(i, i + PROBE.ahead + 1); return w.reduce((a, b) => a + b, 0) / w.length; });
-// raw per-word scores → the scores the filter fires on
+const settle = (zs) => zs.map((_, i) => { const w = zs.slice(i, i + PROBE.ahead + 1); return w.reduce((a, b) => a + b, 0) / w.length; });
+// raw per-word scores → the scores the cascade reads
 export const smooth = (raw) => settle(ema(raw));
-
-// Confidence per word, from the scores alone (no extra GPU work). A look-alike ("spelling bee") makes one word spike;
-// real on-topic text keeps several words high. So over the last 16 words: how many are over the threshold (→ tier),
-// and the average of the top 3 scores (a finer number; research round 6: separates look-alikes better than one word).
-export const WINDOW = 16, TIERS = ["none", "low", "medium", "high"];
-export function confidence(zs) {
-  return zs.map((_, i) => {
-    const w = zs.slice(Math.max(0, i - WINDOW + 1), i + 1), top = [...w].sort((a, b) => b - a).slice(0, 3);
-    const hits = w.filter((z) => z > PROBE.z).length;
-    return { hits, top3: top.reduce((a, b) => a + b, 0) / top.length, tier: TIERS[Math.min(3, hits)] };
-  });
-}
+// per word: the average of the 3 highest scores in the last 16 words. A look-alike ("spelling bee") makes one word
+// spike; real topic text keeps several words high (research round 6).
+export const top3 = (zs) => zs.map((_, i) => {
+  const t = zs.slice(Math.max(0, i - 15), i + 1).sort((a, b) => b - a).slice(0, 3);
+  return t.reduce((a, b) => a + b, 0) / t.length;
+});
 
 // Split text into sentences, keeping every character (joined back together they give the text).
 export const sentences = (text) => (text.match(/[^.!?\n]*(?:[.!?\n]+|$)\s*/g) ?? []).filter(Boolean);
 
-// Cascade with the judge (research/cascade-sweep.mjs, 2026-10-30), per sentence, from its words' scores:
+// The cascade (research/cascade-sweep.mjs, 2026-10-30), per sentence, from its words' scores:
 //   peak ≤ gate              → clear, no judge
 //   top-3 average ≥ certain  → blocked, no judge
 //   otherwise                → Gemma judges the sentence alone (margin = logit Yes − logit No) and the ensemble
 //                              peak + w × margin blocks above t.
 // Chosen on the dev filters with look-alike fires counted 3× against hits; held out: look-alikes 37% → 27%, no false
-// alarms on ordinary text, the judge runs about 4–6 times per 1,000 ordinary words.
+// alarms on ordinary text, the judge runs about 5 times per 1,000 ordinary words.
 export const CASCADE = { gate: 1.5, certain: 8, w: 2, t: -8 };
 // one sentence's verdict; judge() is only called in the unsure band. score > 0 means blocked.
-export async function cascade(peak, top3, judge) {
+export async function cascade(peak, best3, judge) {
   if (peak <= CASCADE.gate) return { verdict: "clear", score: peak - CASCADE.gate - 50 };
-  if (top3 >= CASCADE.certain) return { verdict: "blocked", score: 50 + top3 };
+  if (best3 >= CASCADE.certain) return { verdict: "blocked", score: 50 + best3 };
   const margin = await judge(), ensemble = peak + CASCADE.w * margin;
   return { verdict: ensemble > CASCADE.t ? "judge: blocked" : "judge: cleared", score: ensemble - CASCADE.t, margin, ensemble };
 }

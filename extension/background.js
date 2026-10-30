@@ -2,7 +2,7 @@
 // The model downloads once (~2.9 GB) into the extension's own storage; after that it loads from disk.
 import "./gpu-fixes.js";
 import { CreateMLCEngine, hasModelInCache } from "./vendor/web-llm.js";
-import { TAP, PROBE, mean, makeProbe, score, smooth, confidence, sentences, cascade, CASCADE } from "./probe.js";
+import { TAP, PROBE, mean, makeProbe, score, smooth, top3, sentences, cascade, CASCADE } from "./probe.js";
 
 const MODEL_ID = "gemma-4-E2B-it-q4f16_1-MLC";
 const IDLE_MS = 10 * 60 * 1000; // free the VRAM after 10 minutes without use
@@ -209,18 +209,18 @@ async function makeFilter(sentence) {
   }
   return { sentence, probe: makeProbe(await read(sentence), common.ref, common.ordinary) };
 }
-// The cascade over a run of sentences (each sentence's tokens' probe-layer states): per-word scores and confidence,
+// The cascade over a run of sentences (each sentence's tokens' probe-layer states): per-word scores and
 // and one verdict per sentence (the judge only reads sentences in the unsure band).
 async function cascadeRun(fl, sents, states) {
-  const z = smooth(states.flat().map((x) => score(fl.probe, x))), conf = confidence(z), out = [];
+  const z = smooth(states.flat().map((x) => score(fl.probe, x))), best3 = top3(z), out = [];
   let i = 0;
   for (const [k, ss] of states.entries()) {
     const a = i, b = (i += ss.length);
     if (a === b) { out.push({ a, b, verdict: "clear", score: -99 }); continue; }
-    const peak = Math.max(...z.slice(a, b)), top3 = Math.max(...conf.slice(a, b).map((x) => x.top3));
-    out.push({ a, b, peak, top3, ...(await cascade(peak, top3, () => judge(fl.sentence, sents[k].trim()))) });
+    const peak = Math.max(...z.slice(a, b)), b3 = Math.max(...best3.slice(a, b));
+    out.push({ a, b, peak, top3: b3, ...(await cascade(peak, b3, () => judge(fl.sentence, sents[k].trim()))) });
   }
-  return { z, conf, sentences: out };
+  return { z, sentences: out };
 }
 // Score a recorded reply: word k's own state is in step k + 1 (when it's fed back in to pick the next word), so the
 // last word has none. Words are grouped into sentences for the cascade.
@@ -238,7 +238,7 @@ async function scoreSteps(steps, words) {
   const r = await cascadeRun(filter, groups.map((g) => g.map((k) => words[k].text).join("")), groups.map((g) => g.map((k) => state(steps[k + 1]))));
   const verdict = Array(words.length).fill(null);
   r.sentences.forEach((s, g) => groups[g].forEach((k) => (verdict[k] = s)));
-  return { sentence: filter.sentence, ...CASCADE, smooth: r.z, conf: r.conf, verdict };
+  return { sentence: filter.sentence, ...CASCADE, smooth: r.z, verdict };
 }
 // for the viewer: set (or clear, with "") the filter and rescore the last snapshot
 window.setFilter = async (sentence) => {
