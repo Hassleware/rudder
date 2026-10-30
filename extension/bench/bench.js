@@ -1,0 +1,45 @@
+// Scores the shipped filter in the background page (which has the model) and shows the results per filter.
+const $ = (id) => document.getElementById(id);
+const pct = (x) => (100 * x).toFixed(0) + "%";
+
+function show(r) {
+  $("log").textContent += `\nDone in ${r.seconds} s.`;
+  const head = ["filter", "AUROC", "direct hit", "indirect hit", "look-alike fire", "other-topic fire", "ordinary fire", "mixed: fired early", "mixed: tokens to fire"];
+  const tr = (cells, tag = "td") => { const e = document.createElement("tr"); for (const c of cells) e.append(Object.assign(document.createElement(tag), { textContent: c })); return e; };
+  const rows = [];
+  for (const [split, title] of [["dev", "Dev filters (the research chose the method on these)"], ["test", "Held-out filters (never used to choose anything)"]]) {
+    rows.push(tr([title], "th"), tr(head, "th"));
+    for (const f of r[split]) rows.push(tr([f.filter, f.auroc.toFixed(3), pct(f.direct), pct(f.indirect), pct(f.hardNeg), pct(f.cross), pct(f.benign), f.mixed[0].early ? "yes" : "no", f.mixed[0].delay]));
+  }
+  $("out").replaceChildren(...rows);
+}
+
+// long-text test: false alarms over the pages, and each hidden needle's confidence tier
+function showHay(r) {
+  $("log").textContent += `\nDone in ${r.seconds} s.`;
+  const tr = (cells, tag = "td") => { const e = document.createElement("tr"); for (const c of cells) e.append(Object.assign(document.createElement(tag), { textContent: c })); return e; };
+  const cell = (n) => `${n.tier === "none" ? "missed" : n.tier} (peak ${n.peak.toFixed(1)})`;
+  const mentions = r.needles.filter((n) => n.kind === "mention"), look = r.needles.filter((n) => n.kind === "look-alike");
+  const share = (ns, test) => `${ns.filter(test).length}/${ns.length}`;
+  const rows = [
+    tr([`Passing mentions flagged: ${share(mentions, (n) => n.tier !== "none")} (medium or high: ${share(mentions, (n) => n.tier === "medium" || n.tier === "high")}). Look-alikes flagged: ${share(look, (n) => n.tier !== "none")} (medium or high: ${share(look, (n) => n.tier === "medium" || n.tier === "high")}).`], "th"),
+    tr(["Hidden needle (tier of its over-threshold words; peak score)"], "th"), tr(["filter", "mention 1", "mention 2", "on-topic sentence", "look-alike"], "th"),
+  ];
+  for (const f of r.quiet.map((q) => q.filter)) rows.push(tr([f, ...r.needles.filter((n) => n.filter === f).map(cell)]));
+  rows.push(tr([`The pages alone, no needle (${r.quiet[0].tokens} tokens): words over the threshold, by tier`], "th"), tr(["filter", "per 1000 words", "low", "medium", "high"], "th"));
+  for (const q of r.quiet) rows.push(tr([q.filter, (1000 * q.over / q.tokens).toFixed(1), q.low, q.medium, q.high]));
+  $("out").replaceChildren(...rows);
+}
+
+for (const [id, fn, view] of [["go", "runBench", show], ["hay", "runHaystack", showHay]]) {
+  $(id).onclick = async () => {
+    $("go").disabled = $("hay").disabled = true;
+    $("log").textContent = "Running…";
+    try {
+      view(await browser.extension.getBackgroundPage()[fn]((m) => ($("log").textContent += "\n" + m)));
+    } catch (e) {
+      $("log").textContent += "\nFailed: " + e.message;
+    }
+    $("go").disabled = $("hay").disabled = false;
+  };
+}

@@ -1,0 +1,202 @@
+{
+  "about": "Held-out test set: same layout as filters.json, different filters and passages. Never used to choose a setup; only to report how well the chosen setup holds up on topics it wasn't tuned on.",
+  "filters": [
+    {
+      "id": "dogs",
+      "sentence": "anything about dogs",
+      "paraphrases": ["dogs", "I don't want any information on dogs", "content related to puppies, dog breeds or dog training", "block anything that mentions dogs"],
+      "direct": [
+        "Dogs were domesticated from wolves at least 15,000 years ago.",
+        "Our dog barks every time the postman comes to the door.",
+        "Labrador retrievers are one of the most popular dog breeds in the world.",
+        "The vet said the puppy needs two more vaccinations before it can go outside.",
+        "She takes her two dogs for a long walk in the park every morning.",
+        "A dog's sense of smell is tens of thousands of times stronger than ours."
+      ],
+      "indirect": [
+        "He wagged his tail so hard his whole back end swayed when I picked up the lead.",
+        "The spaniel buried its chew toy under the rose bush again.",
+        "We adopted a rescue greyhound and he sleeps on the sofa all day.",
+        "The puppy chewed through two pairs of shoes in its first week home.",
+        "At the agility trial the collie raced through the weave poles.",
+        "She threw the tennis ball and he bounded across the field to fetch it."
+      ],
+      "hardNeg": [
+        "He worked like a dog all week to finish the report.",
+        "Hot dogs and fizzy drinks were sold at every stand.",
+        "The underdog candidate won the election by a few hundred votes.",
+        "My cat ignores everyone except whoever fills her food bowl.",
+        "It's raining cats and dogs, so take an umbrella.",
+        "The dog-eared paperback had clearly been read many times."
+      ],
+      "mixed": [
+        {
+          "before": "I spent the morning answering emails and booked a dentist appointment for next week. On the way home",
+          "after": " a scruffy terrier ran up to me, dropped a stick at my feet and barked until I threw it."
+        }
+      ]
+    },
+    {
+      "id": "ocean",
+      "sentence": "anything about the ocean or the sea",
+      "paraphrases": ["the sea", "I don't want any information on the ocean", "content related to oceans, seas, marine life or the coast", "block anything that mentions the ocean or sea"],
+      "direct": [
+        "The Pacific is the largest and deepest ocean on Earth.",
+        "Sea levels are rising as the oceans warm and the ice melts.",
+        "Coral reefs cover less than one percent of the ocean floor but host a quarter of marine species.",
+        "The sea was rough, with waves crashing over the harbour wall.",
+        "Ocean currents like the Gulf Stream carry warm water across the Atlantic.",
+        "Plastic waste is piling up in the middle of the ocean."
+      ],
+      "indirect": [
+        "The tide went out and left rock pools full of crabs and anemones.",
+        "Whales surfaced beside the boat, blowing spray into the salty air.",
+        "Twenty metres down, the diver could barely see past her own fins.",
+        "The trawler headed out past the lighthouse into the swell.",
+        "Salt spray stung his eyes as the yacht heeled over in the gale.",
+        "Kelp forests sway in the cold currents off the California coast."
+      ],
+      "hardNeg": [
+        "She was all at sea during her first week at the new job.",
+        "There was an ocean of paperwork to get through before the move.",
+        "The swimming pool closes at eight on weekdays.",
+        "Lake Geneva is popular with sailors in the summer.",
+        "Sea salt caramel is the café's most popular ice-cream flavour.",
+        "The band's new album is called Ocean Drive."
+      ],
+      "mixed": [
+        {
+          "before": "We packed the car early, stopped for coffee and argued about the music for most of the drive. After lunch",
+          "after": " we reached the coast and watched the grey waves roll in, with gulls diving for fish beyond the breakers."
+        }
+      ]
+    },
+    {
+      "id": "gambling",
+      "sentence": "anything about gambling",
+      "paraphrases": ["betting", "I don't want any information on gambling", "content related to casinos, betting, lotteries or poker", "block anything that mentions gambling"],
+      "direct": [
+        "He lost a thousand pounds at the casino in one night.",
+        "Online gambling sites must check that customers are over eighteen.",
+        "She put twenty dollars on red at the roulette table.",
+        "Sports betting has exploded since it was legalised in many states.",
+        "The lottery jackpot rolled over again to forty million.",
+        "Problem gambling can wreck families and finances."
+      ],
+      "indirect": [
+        "He doubled down on a soft seventeen and the dealer turned over a ten.",
+        "The odds on the outsider drifted to 50-1 before the race started.",
+        "She fed another coin into the slot machine and pulled the lever.",
+        "The bookmaker paid out on the accumulator after the last result came in.",
+        "Chips were stacked high in front of the player who had just gone all in.",
+        "He bought scratch cards every Friday hoping to hit the big one."
+      ],
+      "hardNeg": [
+        "Moving abroad without a job was a gamble, but it paid off.",
+        "The stock market went up three percent today.",
+        "Starting the rookie in the final was a big bet by the coach.",
+        "The forecast gives a 70% chance of rain tomorrow.",
+        "She dealt the cards for a quiet game of snap with her niece.",
+        "You can bet I'll be there early on Saturday."
+      ],
+      "mixed": [
+        {
+          "before": "The conference finished on Thursday, so a few of us stayed in the city for an extra night. After dinner",
+          "after": " we went to the casino, bought chips and lost most of them at the blackjack table within an hour."
+        }
+      ]
+    },
+    {
+      "id": "illness",
+      "sentence": "anything about illness or medicine",
+      "paraphrases": ["medicine", "I don't want any information on illness or medicine", "content related to diseases, doctors, hospitals or medication", "block anything that mentions illness or medical treatment"],
+      "direct": [
+        "The doctor prescribed antibiotics for his chest infection.",
+        "Diabetes affects how the body controls blood sugar.",
+        "Flu season puts huge pressure on hospitals every winter.",
+        "Take two tablets every four hours, but no more than eight in a day.",
+        "The new vaccine cut hospital admissions by half.",
+        "She was diagnosed with asthma when she was six."
+      ],
+      "indirect": [
+        "He had a fever of 39 degrees and couldn't stop coughing.",
+        "The nurse checked her blood pressure and took a sample for tests.",
+        "After surgery he spent three days on a ward with a drip in his arm.",
+        "The rash spread across her arms and itched constantly.",
+        "The pharmacist explained the side effects before handing over the box.",
+        "His GP referred him to a specialist after the scan showed a shadow on his lung."
+      ],
+      "hardNeg": [
+        "The economy is sick, according to the opposition leader.",
+        "That skateboard trick was sick!",
+        "A computer virus spread through the company's email system.",
+        "Laughter is the best medicine, as my gran used to say.",
+        "She was sick of waiting for the bus in the rain.",
+        "The gym offers yoga, spin and weight training classes."
+      ],
+      "mixed": [
+        {
+          "before": "The week started well: I finished the garden fence and caught up with an old friend. By Wednesday though",
+          "after": " I had a high temperature and a sore throat, and the doctor said it was probably flu and told me to rest."
+        }
+      ]
+    },
+    {
+      "id": "space",
+      "sentence": "anything about space or astronomy",
+      "paraphrases": ["astronomy", "I don't want any information on space", "content related to planets, stars, rockets or astronauts", "block anything that mentions space or astronomy"],
+      "direct": [
+        "The James Webb telescope photographed galaxies that formed soon after the Big Bang.",
+        "Astronauts on the International Space Station orbit Earth every ninety minutes.",
+        "Jupiter is the largest planet in our solar system.",
+        "A total solar eclipse happens when the Moon blocks the Sun completely.",
+        "NASA plans to send astronauts back to the Moon.",
+        "Black holes are so dense that not even light can escape them."
+      ],
+      "indirect": [
+        "The rocket cleared the tower and arched over the Atlantic towards orbit.",
+        "Through the telescope we could see Saturn's rings and four of its moons.",
+        "The probe slingshotted around Venus to pick up speed.",
+        "A meteor streaked across the sky and broke into glowing fragments.",
+        "The rover drilled into the red dust of the crater floor.",
+        "Light from that star left it before the pyramids were built."
+      ],
+      "hardNeg": [
+        "There's not enough space in the car for all the suitcases.",
+        "She's the star of the school play this year.",
+        "Press the space bar to jump.",
+        "My horoscope says this is a lucky week for Leos.",
+        "He needs some space after the argument.",
+        "Everyone was over the moon when the baby arrived."
+      ],
+      "mixed": [
+        {
+          "before": "The power went out in the evening, so we lit candles and played cards until the kids got bored. Then",
+          "after": " we went outside, lay on the grass and watched the Milky Way, and my son spotted the International Space Station passing overhead."
+        }
+      ]
+    }
+  ],
+  "benign": [
+    "The quarterly report is due at the end of the month.",
+    "I need to renew my passport before the summer.",
+    "The kids built a fort out of sofa cushions.",
+    "The new office chairs are much more comfortable than the old ones.",
+    "Turn left at the roundabout and the school is on your right.",
+    "The concert was moved to Saturday because of a scheduling clash.",
+    "Our internet was down for most of the afternoon.",
+    "The town hall clock has been five minutes fast for years.",
+    "She repainted the bedroom a pale shade of green.",
+    "The train was packed, so I stood all the way to London.",
+    "He keeps forgetting the password for his work account.",
+    "The library is running a poetry workshop on Thursday evenings.",
+    "Please recycle glass and paper in separate bins.",
+    "The museum's new exhibition is about medieval maps.",
+    "The meeting ran over by half an hour again.",
+    "I finally fixed the squeaky hinge on the kitchen door.",
+    "The post office on the corner closes at two on Saturdays.",
+    "Their wedding will be in a small village in the hills.",
+    "The software update added a dark mode and fixed several bugs.",
+    "My sister is learning to play the cello."
+  ]
+}
