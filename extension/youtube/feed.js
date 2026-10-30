@@ -1,8 +1,10 @@
-// YouTube home page and the watch page's related videos (content script). Every one stays invisible (youtube/hide.css)
+// YouTube's recommendations (content script): the home page, search results, channel pages, a watch page's related
+// videos and the Shorts viewer. Every one stays invisible (youtube/hide.css)
 // until the background page, which has read the video's title (from the page's own data) and thumbnail (from the page's
 // own image download) and run the filter, says "show"; "block" takes it out. Invisible ones keep their size, so the
 // layout and YouTube's lazy image loading work as normal. This script reads the page and where tiles are; it doesn't
-// scroll or request anything. The video being watched and the playlist panel are never filtered.
+// scroll or request anything. Never filtered: the video being watched, the short the Shorts viewer was opened on, the
+// playlist panel.
 (() => {
   // put a script into the page so it can read the page's own data (youtube/page.js), and pass what it
   // reads to the background page
@@ -17,6 +19,8 @@
   const TILES = 'ytd-browse[page-subtype="home"] ytd-rich-item-renderer';
   // the related videos beside (or under) the video being watched; not the playlist panel, never the watched video
   const SIDE = "ytd-watch-next-secondary-results-renderer :is(yt-lockup-view-model, ytd-compact-video-renderer)";
+  const SEARCH = "ytd-search :is(ytd-video-renderer, grid-shelf-view-model ytm-shorts-lockup-view-model-v2)";
+  const CHANNEL = 'ytd-browse[page-subtype="channels"] :is(ytd-rich-item-renderer, ytd-shelf-renderer yt-lockup-view-model, ytd-reel-shelf-renderer ytm-shorts-lockup-view-model-v2)';
   const GRID = 'ytd-browse[page-subtype="home"] ytd-rich-grid-renderer';
   let busy = false, again = false;
   const text = (el) => el?.textContent.trim().replace(/\s+/g, " ") || null;
@@ -64,13 +68,52 @@
     });
   }
 
+  // The Shorts viewer shows one short at a time in one reused player. Each new short stays hidden and paused until
+  // it's judged (usually already done: the next ~10 come in ahead); a rejected one is skipped, in the direction the
+  // user was going.
+  let opened = null, lastShown = null, pausedByUs = false;
+  const cameFrom = new Map(); // rejected short -> the short the user came from when it was first skipped
+  const shortId = () => location.pathname.match(/^\/shorts\/([\w-]{11})/)?.[1];
+  const host = () => document.querySelector("ytd-shorts");
+  function gateShort() { // right away on every change: a new short is hidden before it can be seen
+    const id = shortId(), h = host();
+    if (!id) { opened = null; return; }
+    if (!h || h.getAttribute("gemma-id") === id) return;
+    opened ??= id; // the short the viewer was opened on: the user's choice
+    h.setAttribute("gemma-id", id);
+    h.setAttribute("gemma-verdict", id === opened ? "show" : "wait");
+  }
+  function pauseIfHidden() {
+    const h = host(), video = h?.querySelector("video");
+    if (video && shortId() && h.getAttribute("gemma-verdict") !== "show" && !video.paused) { video.pause(); pausedByUs = true; }
+  }
+  document.addEventListener("play", pauseIfHidden, true);
+  async function shorts() {
+    gateShort();
+    const id = shortId(), h = host();
+    if (!id || !h) return;
+    if (h.getAttribute("gemma-verdict") === "show") { lastShown = id; return; }
+    const v = (await browser.runtime.sendMessage({ type: "yt-tiles", tiles: [{ id, viewer: true, dist: 0 }] }))?.[id];
+    if (shortId() !== id) return;
+    if (v === "show") {
+      h.setAttribute("gemma-verdict", "show");
+      lastShown = id;
+      browser.runtime.sendMessage({ type: "yt-shown", ids: [id], at: Date.now() }).catch(() => {});
+      if (pausedByUs) { pausedByUs = false; h.querySelector("video")?.play().catch(() => {}); }
+    } else if (v === "block") {
+      if (!cameFrom.has(id)) cameFrom.set(id, lastShown);
+      const up = cameFrom.get(id) !== lastShown; // back here from below: keep going up
+      h.querySelector(`#navigation-button-${up ? "up" : "down"} button`)?.click();
+    } else pauseIfHidden();
+  }
+
   async function check() {
     if (busy) { again = true; return; }
     busy = true;
     try {
-      const home = [...document.querySelectorAll(TILES)], side = [...document.querySelectorAll(SIDE)], ask = [];
+      const lists = [TILES, SEARCH, CHANNEL, SIDE].map((s) => [...document.querySelectorAll(s)]), ask = [];
       const watching = new URLSearchParams(location.search).get("v");
-      for (const tile of [...home, ...side]) {
+      for (const tile of lists.flat()) {
         if (tile.querySelector("ytd-ad-slot-renderer")) { tile.setAttribute("gemma-verdict", "block"); continue; } // ad
         const id = idOf(tile);
         if (!id) continue; // not filled in yet: stays hidden
@@ -94,9 +137,9 @@
           if (v === "show") tile.setAttribute("gemma-verdict", "ready");
         }
       }
-      reveal(home);
-      reveal(side);
+      lists.forEach(reveal);
       settleShelves();
+      await shorts();
     } finally {
       busy = false;
       if (again) { again = false; setTimeout(check, 50); }
@@ -105,7 +148,7 @@
 
   let timer = null;
   const soon = () => { clearTimeout(timer); timer = setTimeout(check, 50); };
-  new MutationObserver(soon).observe(document.documentElement, { childList: true, subtree: true });
+  new MutationObserver(() => { gateShort(); pauseIfHidden(); soon(); }).observe(document.documentElement, { childList: true, subtree: true });
   browser.runtime.onMessage.addListener((msg) => { if (msg?.type === "yt-ready") soon(); });
   addEventListener("scroll", soon, { passive: true }); // tiles' distance from the screen decides what's filtered next
   setInterval(check, 1000); // catches thumbnails the page drew from its own memory (no download for us to see)

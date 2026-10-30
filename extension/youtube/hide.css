@@ -2,11 +2,16 @@
    (an attribute + CSS). visibility keeps each one's size, so nothing jumps and YouTube still loads
    thumbnails as they near the screen. The video being watched and the playlist panel are never touched. */
 ytd-browse[page-subtype="home"] ytd-rich-item-renderer:not([gemma-verdict="show"]),
+ytd-search :is(ytd-video-renderer, grid-shelf-view-model ytm-shorts-lockup-view-model-v2):not([gemma-verdict="show"]),
+ytd-browse[page-subtype="channels"] :is(ytd-rich-item-renderer, ytd-shelf-renderer yt-lockup-view-model, ytd-reel-shelf-renderer ytm-shorts-lockup-view-model-v2):not([gemma-verdict="show"]),
+ytd-shorts:not([gemma-verdict="show"]) ytd-reel-video-renderer,
 ytd-watch-next-secondary-results-renderer :is(yt-lockup-view-model, ytd-compact-video-renderer):not([gemma-verdict="show"]) {
   visibility: hidden !important;
 }
 /* rejected by the filter (or an ad): taken out, so the rest close up */
 ytd-browse[page-subtype="home"] ytd-rich-item-renderer[gemma-verdict="block"],
+ytd-search :is(ytd-video-renderer, grid-shelf-view-model ytm-shorts-lockup-view-model-v2)[gemma-verdict="block"],
+ytd-browse[page-subtype="channels"] :is(ytd-rich-item-renderer, ytd-shelf-renderer yt-lockup-view-model, ytd-reel-shelf-renderer ytm-shorts-lockup-view-model-v2)[gemma-verdict="block"],
 ytd-watch-next-secondary-results-renderer :is(yt-lockup-view-model, ytd-compact-video-renderer)[gemma-verdict="block"] {
   display: none !important;
 }
