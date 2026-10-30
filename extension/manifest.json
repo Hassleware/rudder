@@ -30,8 +30,10 @@
     "persistent": true
   },
   "browser_action": {
-    "default_title": "Gemma",
-    "default_popup": "popup.html"
+    "default_title": "Rudder",
+    "default_popup": "popup.html",
+    "default_icon": "rudder-icon.svg",
+    "default_area": "navbar"
   },
   "content_security_policy": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
   "content_scripts": [
@@ -50,5 +52,9 @@
   ],
   "web_accessible_resources": [
     "youtube/page.js"
-  ]
+  ],
+  "icons": {
+    "48": "rudder-icon.svg",
+    "96": "rudder-icon.svg"
+  }
 }
