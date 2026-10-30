@@ -156,7 +156,9 @@ const splitTokens = Object.fromEntries(Object.entries(SPLITS).map(([k]) => [k, [
 // idea c: judge each word together with the next one(s): "persist2" = both it and the next word must be high,
 // "mean3" = the average of it and the next two
 const waitFor = (zs, agg) => (agg === "persist2" ? zs.map((z, i) => Math.min(z, zs[i + 1] ?? z))
-  : agg === "mean3" ? zs.map((_, i) => avgOf(zs.slice(i, i + 3))) : zs);
+  : agg === "mean3" ? zs.map((_, i) => avgOf(zs.slice(i, i + 3)))
+  : agg?.startsWith("ahead") ? zs.map((_, i) => avgOf(zs.slice(i, i + 1 + +agg.slice(5)))) // aheadK: the word + the next K
+  : agg?.startsWith("around") ? zs.map((_, i) => avgOf(zs.slice(Math.max(0, i - +agg.slice(6)), i + 3))) : zs); // aroundK: K before + 2 after
 // per split, filter and phrasing: each passage's peak z-score (and per-token z for mixed passages)
 function run(cfg, split) {
   const b = SPLITS[split], ts = splitTokens[split], pos = new Map(ts.map((t, k) => [t, k])), out = [];
@@ -346,7 +348,7 @@ const rounds = {
   // 8: shipped vs "wait for the next two words" (mean3) at matching strictness: thresholds set on dev, shown on test
   8() {
     const base = { mode: "reply", readout: "last", ref: "bankn", space: "center", norm: "dot", layers: [6], alpha: 0.5 };
-    for (const c of [base, { ...base, agg: "mean3" }]) {
+    for (const c of [base, ...(process.argv[4] ?? "mean3").split(",").map((agg) => ({ ...base, agg }))]) {
       const dev = run(c, "dev"), test = run(c, "test"), benign = dev.flatMap((r) => splitPass.dev.filter((p) => p.kind === "benign").map((p) => r.peaks[p.id]));
       console.log(`\n${name(c)}`);
       for (const q of [0.95, 0.98, 0.99, 0.995]) {
