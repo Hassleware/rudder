@@ -16,11 +16,12 @@
   form { display: flex; gap: 6px; }
   textarea { flex: 1; font: inherit; padding: 6px; resize: none; }
   button { font: inherit; padding: 4px 10px; }
+  #snap.on { background: #6aa84f; color: white; }
   #status { font-size: 12px; opacity: .7; min-height: 1.2em; }
 </style>
 </head>
 <body>
-  <header><h1>Gemma 4 E2B</h1><button id="clear" title="Start a new chat">New chat</button></header>
+  <header><h1>Gemma 4 E2B</h1><button id="snap" title="When on, each reply is recorded word by word (every layer's output) and shown in the snapshot tab">Snapshot: off</button><button id="clear" title="Start a new chat">New chat</button></header>
   <div id="status"></div>
   <div id="setup" hidden>
     <p>The model (~2.9 GB) isn't installed in the extension yet.</p>

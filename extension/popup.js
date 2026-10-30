@@ -19,6 +19,8 @@ port.onMessage.addListener((m) => {
     setBusy(m.partial !== null);
     $("status").textContent = m.status;
     $("setup").hidden = !m.setup;
+    $("snap").textContent = m.snapOn ? "Snapshot: on" : "Snapshot: off";
+    $("snap").classList.toggle("on", m.snapOn);
   } else if (m.type === "status") {
     $("status").textContent = m.text;
   } else if (m.type === "user") {
@@ -49,6 +51,7 @@ $("q").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("f").requestSubmit(); }
 });
 $("clear").addEventListener("click", () => port.postMessage({ type: "clear" }));
+$("snap").addEventListener("click", () => port.postMessage({ type: "snapshot" }));
 $("download").addEventListener("click", () => port.postMessage({ type: "load" }));
 // File pickers close popups in Firefox, so importing happens in its own tab.
 $("import").addEventListener("click", () => { browser.tabs.create({ url: "import.html" }); window.close(); });

@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Gemma snapshot</title>
+<style>
+  :root { color-scheme: light dark; font-family: system-ui, sans-serif; font-size: 14px; }
+  body { margin: 0; display: flex; flex-direction: column; height: 100vh; }
+  header { padding: 8px 12px; border-bottom: 1px solid #8886; }
+  .nav { display: flex; align-items: center; gap: 8px; }
+  .nav button { font: inherit; padding: 2px 10px; }
+  #wordinfo { font: 600 15px system-ui, sans-serif; white-space: pre; }
+  .label { font-size: 11px; opacity: .6; margin-top: 6px; }
+  #context { font: 12px ui-monospace, monospace; white-space: pre-wrap; max-height: 5.5em; overflow-y: auto; padding: 4px 6px; background: #8881; border-radius: 4px; }
+  #context mark { background: #6aa84f; color: white; white-space: pre-wrap; }
+  #context .b { background: #8882; } /* alternate shading shows where each token starts and ends */
+  #reply { max-height: 4.5em; overflow-y: auto; line-height: 1.6; }
+  #reply span { white-space: pre; cursor: pointer; border-radius: 3px; padding: 1px 0; }
+  #reply span:hover { background: #8884; }
+  #reply span.on { background: #6aa84f; color: white; }
+  #reply span.low { box-shadow: inset 0 -3px #e6b800; }
+  #reply span.medium { box-shadow: inset 0 -3px #f07c00; }
+  #reply span.high { box-shadow: inset 0 -3px #d33; }
+  .filter { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 13px; }
+  .filter input { flex: 0 1 320px; font: inherit; padding: 3px 6px; }
+  #filterinfo { white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+  #filterinfo.low { color: #b38f00; font-weight: 600; }
+  #filterinfo.medium { color: #f07c00; font-weight: 600; }
+  #filterinfo.high { color: #d33; font-weight: 600; }
+  .content { flex: 1; display: flex; min-height: 0; }
+  aside { width: 440px; display: flex; flex-direction: column; border-right: 1px solid #8886; }
+  #filter { margin: 8px 8px 4px; padding: 5px; font: inherit; }
+  #legend { display: flex; flex-wrap: wrap; gap: 3px; padding: 0 8px 8px; border-bottom: 1px solid #8886; }
+  #legend button { font: 11px system-ui, sans-serif; padding: 2px 6px; border: 1px solid #8886; border-left: 6px solid var(--c); border-radius: 3px; background: none; cursor: pointer; }
+  #list { flex: 1; overflow-y: auto; margin: 0; padding: 0; list-style: none; font: 12px ui-monospace, monospace; }
+  #list li { padding: 2px 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #list .group { position: sticky; top: 0; z-index: 1; padding: 6px 8px; font: bold 13px system-ui, sans-serif; background: Canvas; border-top: 2px solid #8888; border-bottom: 1px solid #8886; }
+  #list .phase { padding: 4px 8px 2px; font: 600 12px system-ui, sans-serif; border-left: 6px solid var(--c); color: var(--c); }
+  #list .row { cursor: pointer; border-left: 6px solid var(--c); padding-left: 14px; }
+  #list .row.on { background: color-mix(in srgb, var(--c) 35%, transparent); }
+  main { flex: 1; padding: 12px 16px; overflow-y: auto; min-width: 0; }
+  #stage { font: 600 13px system-ui, sans-serif; border-left: 6px solid #888; padding: 2px 8px; margin-bottom: 8px; }
+  h2 { font-size: 14px; margin: 0 0 6px; word-break: break-all; font-weight: normal; }
+  #explain { font-size: 13px; white-space: pre-line; margin: 0 0 10px; padding: 8px 10px; background: #8881; border-radius: 4px; }
+  #stats { font-size: 13px; opacity: .85; margin-bottom: 10px; }
+  canvas { width: 100%; height: 260px; background: #8881; }
+  pre { font-size: 12px; white-space: pre-wrap; }
+  .hint { font-size: 12px; opacity: .6; }
+</style>
+</head>
+<body>
+  <header>
+    <div class="nav">
+      <button id="prev" title="Previous word (←)">◀</button>
+      <span id="wordinfo"></span>
+      <button id="next" title="Next word (→)">▶</button>
+    </div>
+    <div class="label">What the model sees: the exact tokens in its memory (KV cache, max 4096; local layers only look at the last 512). The highlighted token is the one run through the layers below; the rest reaches it through attention. Hover a token for its id.</div>
+    <div id="context"></div>
+    <div class="filter">
+      <input id="filterText" placeholder="Filter sentence, e.g. anything about bees">
+      <button id="setFilter" title="Runs the sentence through the model and caches its layer outputs (a few seconds)">Set filter</button>
+      <span id="filterinfo"></span>
+      <a href="bench/bench.html" target="_blank">benchmark</a>
+    </div>
+    <div class="label">Reply (click a word; underline = the filter fires: yellow low, orange medium, red high confidence):</div>
+    <div id="reply"></div>
+  </header>
+  <div class="content">
+    <aside>
+      <input id="filter" placeholder="Filter: kernel, stage or layer (e.g. “Layer 12 ·”, “Layer output”)…">
+      <div id="legend"></div>
+      <ol id="list"></ol>
+    </aside>
+    <main>
+      <div id="stage"></div>
+      <h2 id="title"></h2>
+      <p id="explain"></p>
+      <div id="stats"></div>
+      <canvas id="plot"></canvas>
+      <p class="hint">←/→ change word (the same row stays selected, to compare words). ↑/↓ or j/k step through the outputs in the
+        order the GPU ran them. Click a colour in the key to show only that stage. The plot shows min–max of the values in each pixel
+        column. Only the first 8 KB of each output is copied (a word's 1536-number hidden state fits), and buffers bigger than the
+        tensor hold leftover values after it.</p>
+      <pre id="nums"></pre>
+    </main>
+  </div>
+  <script src="stages.js"></script>
+  <script src="snapshot.js"></script>
+</body>
+</html>
