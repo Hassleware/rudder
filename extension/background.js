@@ -325,6 +325,24 @@ browser.runtime.onConnect.addListener(async (port) => {
 // YouTube: videos read from YouTube's own responses before the page draws them (youtube/intercept.js). Not linked to
 // the filter yet.
 window.youtubeVideos = youtubeVideos;
+// Run the cascade filter over every YouTube video read so far: its title with the channel name attached
+// ("… — channel: IGN"; thumbnails need the vision path, still research).
+// Only reports; doesn't change what's shown. Each title is read through the model once and scored for every filter.
+// → [{ id, title, channel, short, verdicts: { [filter sentence]: { blocked, verdict, peak, margin } } }] in feed order
+window.filterYoutube = async (filterSentences) => {
+  const [pre] = (await bench()).templates.content.reply.split("{text}"), fls = [], out = [];
+  for (const s of filterSentences) fls.push(await makeFilter(s));
+  for (const v of [...youtubeVideos.values()].filter((x) => x.title).sort((a, b) => a.order - b.order)) {
+    const sents = sentences(v.channel ? `${v.title} — channel: ${v.channel}` : v.title), st = (await layerStates([pre, ...sents, ""], PROBE.layer)).pieces.slice(1, 1 + sents.length);
+    const verdicts = {};
+    for (const fl of fls) {
+      const top = (await cascadeRun(fl, sents, st)).sentences.reduce((a, x) => (x.score > a.score ? x : a));
+      verdicts[fl.sentence] = { blocked: top.score > 0, verdict: top.verdict, peak: top.peak, margin: top.margin };
+    }
+    out.push({ id: v.id, title: v.title, channel: v.channel, short: !!v.short, verdicts });
+  }
+  return out;
+};
 
 // Load at Firefox startup so the popup is ready the moment it opens (only if already installed;
 // the 10-minute idle unload still frees the VRAM if it isn't used).
