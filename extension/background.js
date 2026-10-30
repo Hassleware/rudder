@@ -2,6 +2,7 @@
 // The model downloads once (~2.9 GB) into the extension's own storage; after that it loads from disk.
 import "./gpu-fixes.js";
 import { CreateMLCEngine, hasModelInCache } from "./vendor/web-llm.js";
+import { videos as youtubeVideos } from "./youtube/intercept.js";
 import { TAP, PROBE, mean, makeProbe, score, smooth, top3, sentences, cascade, CASCADE } from "./probe.js";
 
 const MODEL_ID = "gemma-4-E2B-it-q4f16_1-MLC";
@@ -321,6 +322,10 @@ browser.runtime.onConnect.addListener(async (port) => {
   }
   port.postMessage(snapshot());
 });
+// YouTube: videos read from YouTube's own responses before the page draws them (youtube/intercept.js). Not linked to
+// the filter yet.
+window.youtubeVideos = youtubeVideos;
+
 // Load at Firefox startup so the popup is ready the moment it opens (only if already installed;
 // the 10-minute idle unload still frees the VRAM if it isn't used).
 hasModelInCache(MODEL_ID).catch(() => false).then((ok) => {
