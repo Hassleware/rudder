@@ -2,11 +2,11 @@
 // already has or downloads:
 //   - the page's own data (ytInitialData, read inside the page by youtube/page.js): the first videos (id, title,
 //     channel, thumbnail address). Its HTML can come through YouTube's service worker, so it isn't read off the network.
-//   - the page's youtubei/v1/browse responses (Firefox webRequest.filterResponseData, every byte passed on unchanged):
-//     the videos YouTube adds as you scroll
+//   - the page's youtubei/v1/browse and /next responses (Firefox webRequest.filterResponseData, every byte passed on
+//     unchanged): the videos YouTube adds as you scroll, on the home page and in a watch page's related list
 //   - the page's thumbnail downloads from i.ytimg.com (same way): the image bytes, before the page decodes them
-// youtube/feed.js keeps each home tile hidden until verdict() says it may be shown. For now the verdict only waits until
-// the extension has seen the video's title and its thumbnail; the filter plugs in here later.
+// youtube/feed.js keeps each home tile hidden until verdict() says it may be shown: after its title has been read,
+// the filter (setJudge) has passed it and its thumbnail has been read. Rejected tiles are removed from the grid.
 export const videos = new Map(); // id → { id, title, channel, thumbnail, order, shelf, short, seenAt, image, imageAt, ... }
 let order = 0;
 const now = () => Date.now();
@@ -74,7 +74,7 @@ function learn(json, source, tabId) {
   const found = [];
   collect(json, found);
   for (const v of found) {
-    if (!videos.has(v.id)) videos.set(v.id, { ...v, order: ++order, source, seenAt: now() });
+    if (!videos.has(v.id)) { videos.set(v.id, { ...v, order: ++order, source, seenAt: now() }); enqueue(videos.get(v.id)); } // judge ahead
   }
   if (found.length) poke(tabId);
 }
@@ -85,6 +85,10 @@ const poke = (tabId) => { if (tabId >= 0) browser.tabs.sendMessage(tabId, { type
 browser.webRequest.onBeforeRequest.addListener((d) => tap(d, (bytes) => {
   learn(JSON.parse(new TextDecoder().decode(bytes)), "browse", d.tabId);
 }), { urls: ["https://www.youtube.com/youtubei/v1/browse*"] }, ["blocking"]); // any type: YouTube's service worker may make it
+
+browser.webRequest.onBeforeRequest.addListener((d) => tap(d, (bytes) => {
+  learn(JSON.parse(new TextDecoder().decode(bytes)), "next", d.tabId);
+}), { urls: ["https://www.youtube.com/youtubei/v1/next*"] }, ["blocking"]); // the watch page's related videos
 
 browser.webRequest.onBeforeRequest.addListener((d) => {
   const id = d.url.match(/\/vi(?:_webp)?\/([\w-]{11})\//)?.[1];
@@ -102,11 +106,85 @@ browser.webRequest.onBeforeRequest.addListener((d) => {
   });
 }, { urls: ["https://i.ytimg.com/vi/*", "https://i.ytimg.com/vi_webp/*"], types: ["image"] }, ["blocking"]);
 
-// May this tile be shown? Not until we've seen its title and its thumbnail. If the page showed the thumbnail from its
-// own memory (no download for us to read), it's allowed after 2 s, and marked so.
-export function verdict(id, imageLoaded) {
-  const v = videos.get(id);
+// The filter (background.js hands it in with setJudge) takes a batch of videos at a time, nearest to the screen first.
+// Layer 0, memory: every verdict is kept (per filter set, in extension storage), so a video seen before is decided
+// instantly. Layer 1, judging ahead: every video is queued as soon as YouTube's data arrives, before its tile exists or
+// is near the screen; tiles' distance from the screen only sets the order. If the model is busy (a chat), the batch
+// waits its turn.
+let judge = null, working = false, memKey = null, saveTimer = null;
+const queue = [], tabs = new Set(), memory = new Map();
+const BATCH = 12;
+export async function setJudge(fn, signature) {
+  judge = fn;
+  if (signature && memKey !== "yt-verdicts:" + signature) {
+    memKey = "yt-verdicts:" + signature;
+    memory.clear();
+    const saved = (await browser.storage.local.get(memKey).catch(() => ({})))[memKey] ?? {};
+    for (const [id, f] of Object.entries(saved)) memory.set(id, f);
+    for (const v of videos.values()) if (!v.filter && memory.has(v.id)) v.filter = { ...memory.get(v.id), remembered: true };
+  }
+  for (const v of videos.values()) enqueue(v);
+  work();
+}
+function remember(v) {
+  memory.delete(v.id);
+  memory.set(v.id, (({ blocked, verdicts }) => ({ blocked, verdicts }))(v.filter));
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => { // keep the newest 5000
+    const all = [...memory].slice(-5000);
+    browser.storage.local.set({ [memKey]: Object.fromEntries(all) }).catch(() => {});
+  }, 2000);
+}
+function enqueue(v) {
+  if (!judge || !v.title || v.filter || v.queued) return;
+  if (memory.has(v.id)) { v.filter = { ...memory.get(v.id), remembered: true }; v.filteredAt = now(); return; }
+  v.queued = true;
+  queue.push(v);
+  work();
+}
+// the waiting video closest to the screen (dist = screens below the bottom of the window; ≤ 0 = on screen; unknown =
+// not built yet, after the rest), then YouTube's order
+function next() {
+  let best = 0;
+  const d = (v) => v.dist ?? 9;
+  for (let i = 1; i < queue.length; i++) if (d(queue[i]) < d(queue[best]) || (d(queue[i]) === d(queue[best]) && queue[i].order < queue[best].order)) best = i;
+  return queue.splice(best, 1)[0];
+}
+async function work() {
+  if (working || !judge) return;
+  working = true;
+  try {
+    while (queue.length) {
+      const batch = [];
+      while (queue.length && batch.length < BATCH) batch.push(next());
+      let results;
+      if (!judge) { queue.push(...batch); break; } // filtering switched off meanwhile: keep them for later
+      try {
+        results = await judge(batch);
+      } catch (err) {
+        if (/busy/i.test(err.message)) { queue.push(...batch); await new Promise((r) => setTimeout(r, 1000)); continue; }
+        results = batch.map(() => ({ blocked: false, error: err.message })); // ponytail: a failed check shows the video; fail closed if that matters
+      }
+      batch.forEach((v, k) => { v.filter = results[k]; v.filteredAt = now(); if (!v.filter.error) remember(v); });
+      for (const t of tabs) poke(t);
+    }
+  } finally {
+    working = false;
+  }
+}
+
+// May this tile be shown? "wait" until we've read its title, the filter has judged it and we've read its thumbnail;
+// "block" if the filter rejected it. A tile whose data never came through (e.g. added while scrolling) is judged on the
+// title and channel the page shows in the tile itself. If the page drew the thumbnail from its own memory (no download
+// for us to read), it's allowed after 2 s, and marked so.
+export function verdict({ id, imageLoaded, title, channel, dist }) {
+  let v = videos.get(id);
+  if (!v && title) videos.set(id, (v = { id, title, channel, order: ++order, source: "tile", seenAt: now() }));
+  if (v && !v.title && title) Object.assign(v, { title, channel: v.channel ?? channel, source: "tile", seenAt: v.seenAt ?? now() });
   if (!v?.title) return "wait";
+  v.dist = dist;
+  if (!v.filter) { enqueue(v); return "wait"; }
+  if (v.filter.blocked) return "block";
   if (!v.image) {
     if (!imageLoaded) return "wait";
     v.imageLoadedAt ??= now();
@@ -119,7 +197,8 @@ export function verdict(id, imageLoaded) {
 browser.runtime.onMessage.addListener((msg, sender) => {
   if (msg?.type === "yt-data") { try { learn(JSON.parse(msg.json), msg.source, sender.tab?.id ?? -1); } catch (err) { console.warn("youtube data:", err); } }
   if (msg?.type === "yt-tiles") {
-    return Promise.resolve(Object.fromEntries(msg.tiles.map(({ id, imageLoaded }) => [id, verdict(id, imageLoaded)])));
+    if (sender.tab?.id >= 0) tabs.add(sender.tab.id);
+    return Promise.resolve(Object.fromEntries(msg.tiles.map((t) => [t.id, verdict(t)])));
   }
   if (msg?.type === "yt-shown") for (const id of msg.ids) { const v = videos.get(id); if (v) v.shownAt ??= msg.at; }
 });
