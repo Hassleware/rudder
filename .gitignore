@@ -1,0 +1,7 @@
+node_modules/
+# test Firefox profile with the 2.9 GB model in it
+.dev-profile/
+dist/
+# copied from node_modules by `npm install`
+extension/vendor/
+*.bin
