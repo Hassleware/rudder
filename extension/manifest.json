@@ -1,0 +1,28 @@
+{
+  "manifest_version": 2,
+  "name": "Gemma Local",
+  "version": "0.1.0",
+  "description": "Chat with Gemma 4 E2B running on your own GPU, from the toolbar.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "gemma-local@doomo.local",
+      "strict_min_version": "142.0",
+      "data_collection_permissions": { "required": ["none"] }
+    }
+  },
+  "permissions": [
+    "unlimitedStorage",
+    "https://huggingface.co/*",
+    "https://*.hf.co/*",
+    "https://raw.githubusercontent.com/*"
+  ],
+  "background": {
+    "page": "background.html",
+    "persistent": true
+  },
+  "browser_action": {
+    "default_title": "Gemma",
+    "default_popup": "popup.html"
+  },
+  "content_security_policy": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+}
