@@ -48,3 +48,22 @@ export function confidence(zs) {
     return { hits, top3: top.reduce((a, b) => a + b, 0) / top.length, tier: TIERS[Math.min(3, hits)] };
   });
 }
+
+// Split text into sentences, keeping every character (joined back together they give the text).
+export const sentences = (text) => (text.match(/[^.!?\n]*(?:[.!?\n]+|$)\s*/g) ?? []).filter(Boolean);
+
+// Cascade with the judge (research/cascade-sweep.mjs, 2026-10-30), per sentence, from its words' scores:
+//   peak ≤ gate              → clear, no judge
+//   top-3 average ≥ certain  → blocked, no judge
+//   otherwise                → Gemma judges the sentence alone (margin = logit Yes − logit No) and the ensemble
+//                              peak + w × margin blocks above t.
+// Chosen on the dev filters with look-alike fires counted 3× against hits; held out: look-alikes 37% → 27%, no false
+// alarms on ordinary text, the judge runs about 4–6 times per 1,000 ordinary words.
+export const CASCADE = { gate: 1.5, certain: 8, w: 2, t: -8 };
+// one sentence's verdict; judge() is only called in the unsure band. score > 0 means blocked.
+export async function cascade(peak, top3, judge) {
+  if (peak <= CASCADE.gate) return { verdict: "clear", score: peak - CASCADE.gate - 50 };
+  if (top3 >= CASCADE.certain) return { verdict: "blocked", score: 50 + top3 };
+  const margin = await judge(), ensemble = peak + CASCADE.w * margin;
+  return { verdict: ensemble > CASCADE.t ? "judge: blocked" : "judge: cleared", score: ensemble - CASCADE.t, margin, ensemble };
+}

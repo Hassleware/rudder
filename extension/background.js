@@ -2,7 +2,7 @@
 // The model downloads once (~2.9 GB) into the extension's own storage; after that it loads from disk.
 import "./gpu-fixes.js";
 import { CreateMLCEngine, hasModelInCache } from "./vendor/web-llm.js";
-import { TAP, PROBE, mean, makeProbe, score, smooth, confidence } from "./probe.js";
+import { TAP, PROBE, mean, makeProbe, score, smooth, confidence, sentences, cascade, CASCADE } from "./probe.js";
 
 const MODEL_ID = "gemma-4-E2B-it-q4f16_1-MLC";
 const IDLE_MS = 10 * 60 * 1000; // free the VRAM after 10 minutes without use
@@ -98,7 +98,7 @@ async function saveSnapshot() {
   // the memory's tokens up to the last pass (each as text, so token boundaries can be shown)
   const last = at.at(-1);
   const tokens = kv.slice(0, last ? last.pos + last.n : 0).map((id) => ({ id, text: text(id) }));
-  window.lastSnapshot = { steps, words, at, tokens, filter: scoreSteps(steps) };
+  window.lastSnapshot = { steps, words, at, tokens, filter: await scoreSteps(steps, words) };
   setStatus(`${status} · snapshot: ${steps.length} words${steps.length >= 100 ? " (the first 100)" : ""}`);
   showViewer();
 }
@@ -121,6 +121,7 @@ async function layerStates(pieces, layer = null) {
     const e = await load(), p = e.loadedModelIdToPipeline.get(MODEL_ID);
     const ids = pieces.map((s) => (s ? Array.from(p.tokenizer.encode(s)) : []));
     const all = [p.bosTokenId, ...ids.flat()], states = [];
+    judgeKept = null;
     await e.resetChat();
     for (let i = 0; i < all.length; i += 32) { // 32 tokens × 35 outputs fit the 12 MB collection buffer
       const chunk = all.slice(i, i + 32);
@@ -149,6 +150,44 @@ async function layerStates(pieces, layer = null) {
     probing = false;
   }
 }
+// Gemma as a Yes/No judge of one piece of text against a filter sentence: returns logit(Yes) − logit(No) for its first
+// answer word. The fixed start of the prompt (with the filter sentence) stays in the model's memory between calls and
+// each call reads only the text and the question, then rolls the memory back (TVM's kv_state_popn). Reads one token at a
+// time like the rest of the Firefox build (no slow prompt-kernel build). Clears the chat's memory like layerStates.
+let judgeKept = null; // { sentence, n }: the prompt start currently in memory
+async function judge(filterSentence, text) {
+  if (partial !== null || probing) throw new Error("The model is busy.");
+  probing = true;
+  try {
+    const e = await load(), p = e.loadedModelIdToPipeline.get(MODEL_ID), tok = p.tokenizer;
+    const feed = (ids) => { for (const id of ids) { p.tvm.beginScope(); p.artifactPrefillAndForward(p.getArtifactTextEmbeddings([id]), [id], [0]); p.tvm.endScope(); } };
+    if (judgeKept?.sentence !== filterSentence || p.filledKVCacheLength !== judgeKept.n) {
+      await e.resetChat();
+      feed([p.bosTokenId, ...tok.encode(`<|turn>user\nYou are a content filter. Filter: "${filterSentence}"\nText: "`)]);
+      judgeKept = { sentence: filterSentence, n: p.filledKVCacheLength };
+    }
+    const ids = Array.from(tok.encode(`${text}"\nDoes the text contain anything the filter describes? Answer only Yes or No.<turn|>\n<|turn>model\n`));
+    feed(ids.slice(0, -1));
+    p.tvm.beginScope();
+    p.updateLogitsOnCPU(p.artifactPrefillAndForward(p.getArtifactTextEmbeddings(ids.slice(-1)), ids.slice(-1), [0]));
+    p.tvm.endScope();
+    await p.device.sync();
+    const a = p.logitsOnCPU.toArray(), margin = a[YES_NO(tok)[0]] - a[YES_NO(tok)[1]];
+    try { // roll back to the prompt start
+      popn ??= p.tvm.getGlobalFunc("vm.builtin.kv_state_popn");
+      for (const s of p.getActiveKVStates()) popn(s, p.tvm.scalar(0, "int64"), p.tvm.scalar(ids.length, "int32"));
+      p.filledKVCacheLength -= ids.length;
+    } catch {
+      judgeKept = null; // no roll-back: start fresh next time
+    }
+    return margin;
+  } finally {
+    probing = false;
+  }
+}
+let popn = null, yesNo = null;
+const YES_NO = (tok) => (yesNo ??= [tok.encode("Yes")[0], tok.encode("No")[0]]);
+
 // one token's 35 layer-output records → one 35 × 1536 vector
 function stack(taps) {
   const v = new Float32Array(35 * 1536);
@@ -170,28 +209,49 @@ async function makeFilter(sentence) {
   }
   return { sentence, probe: makeProbe(await read(sentence), common.ref, common.ordinary) };
 }
-// each recorded word's score (its layer outputs are in the snapshot)
-function scoreSteps(steps) {
+// The cascade over a run of sentences (each sentence's tokens' probe-layer states): per-word scores and confidence,
+// and one verdict per sentence (the judge only reads sentences in the unsure band).
+async function cascadeRun(fl, sents, states) {
+  const z = smooth(states.flat().map((x) => score(fl.probe, x))), conf = confidence(z), out = [];
+  let i = 0;
+  for (const [k, ss] of states.entries()) {
+    const a = i, b = (i += ss.length);
+    if (a === b) { out.push({ a, b, verdict: "clear", score: -99 }); continue; }
+    const peak = Math.max(...z.slice(a, b)), top3 = Math.max(...conf.slice(a, b).map((x) => x.top3));
+    out.push({ a, b, peak, top3, ...(await cascade(peak, top3, () => judge(fl.sentence, sents[k].trim()))) });
+  }
+  return { z, conf, sentences: out };
+}
+// Score a recorded reply: word k's own state is in step k + 1 (when it's fed back in to pick the next word), so the
+// last word has none. Words are grouped into sentences for the cascade.
+async function scoreSteps(steps, words) {
   if (!filter) return null;
-  const raw = steps.map((recs) => {
-    const taps = recs.filter((r) => TAP.test(r.kernel));
-    return taps.length === 35 ? score(filter.probe, Float32Array.from(taps[PROBE.layer].values.subarray(0, 1536))) : 0;
-  });
-  const s = smooth(raw);
-  return { sentence: filter.sentence, threshold: PROBE.z, raw, smooth: s, conf: confidence(s) };
+  const state = (recs) => {
+    const taps = (recs ?? []).filter((r) => TAP.test(r.kernel));
+    return taps.length === 35 ? Float32Array.from(taps[PROBE.layer].values.subarray(0, 1536)) : null;
+  };
+  const n = words.findLastIndex((_, k) => state(steps[k + 1])) + 1, groups = [];
+  for (let k = 0; k < n; k++) {
+    if (!groups.length || /[.!?\n]/.test(words[k - 1].text)) groups.push([]);
+    groups.at(-1).push(k);
+  }
+  const r = await cascadeRun(filter, groups.map((g) => g.map((k) => words[k].text).join("")), groups.map((g) => g.map((k) => state(steps[k + 1]))));
+  const verdict = Array(words.length).fill(null);
+  r.sentences.forEach((s, g) => groups[g].forEach((k) => (verdict[k] = s)));
+  return { sentence: filter.sentence, ...CASCADE, smooth: r.z, conf: r.conf, verdict };
 }
 // for the viewer: set (or clear, with "") the filter and rescore the last snapshot
 window.setFilter = async (sentence) => {
   filter = sentence ? await makeFilter(sentence) : null;
-  if (window.lastSnapshot) window.lastSnapshot.filter = scoreSteps(window.lastSnapshot.steps);
+  if (window.lastSnapshot) window.lastSnapshot.filter = await scoreSteps(window.lastSnapshot.steps, window.lastSnapshot.words);
   showViewer();
 };
 window.filterSentence = () => filter?.sentence ?? "";
 // for bench/bench.html: score the filter on the benchmark (GPU, about a minute)
-window.runBench = async (log) => (await import("./bench/run.js")).run({ layerStates, makeFilter, log });
+window.runBench = async (log) => (await import("./bench/run.js")).run({ layerStates, makeFilter, cascadeRun, log });
 // for research/probe-research.mjs: dump every benchmark passage's layer outputs to a local server (GPU, about a minute)
 // for bench/bench.html: a passing mention hidden in pages of ordinary text (GPU, a few minutes)
-window.runHaystack = async (log) => (await import("./bench/run.js")).haystack({ layerStates, makeFilter, log });
+window.runHaystack = async (log) => (await import("./bench/run.js")).haystack({ layerStates, makeFilter, cascadeRun, log });
 window.dumpBench = async (url, log) => (await import("./bench/run.js")).dump({ layerStates, url, log });
 
 async function chat(text) {
@@ -206,6 +266,7 @@ async function chat(text) {
   let recording = false;
   try {
     const e = await load();
+    if (judgeKept) { judgeKept = null; await e.resetChat(); } // the judge's prompt start is in memory
     // Snapshot on: record every layer's output for each word of this reply. The first job of a forward pass is
     // the embedding lookup; prompt-reading passes that pick no word are dropped.
     if (snapOn) { globalThis.gpuSnapshot.start({ stepStart: /^fused_dequantize_take2/ }); passes = []; recording = true; }
@@ -228,8 +289,8 @@ async function chat(text) {
     history.pop(); // drop the user turn that failed
     send({ type: "error", text: err.message });
   }
-  if (recording) await saveSnapshot();
   partial = null;
+  if (recording) await saveSnapshot().catch((err) => setStatus("Snapshot scoring failed: " + err.message));
   send({ type: "done" });
   touch();
 }
