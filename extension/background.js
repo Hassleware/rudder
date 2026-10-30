@@ -2,7 +2,7 @@
 // The model downloads once (~2.9 GB) into the extension's own storage; after that it loads from disk.
 import "./gpu-fixes.js";
 import { CreateMLCEngine, hasModelInCache } from "./vendor/web-llm.js";
-import { videos as youtubeVideos, setJudge as setYoutubeJudge } from "./youtube/intercept.js";
+import { videos as youtubeVideos, setJudge as setYoutubeJudge, setFilters as setYoutubeFilters, setEnabled as setYoutubeEnabled, stats as youtubeStats } from "./youtube/intercept.js";
 import { TAP, PROBE, mean, makeProbe, score, smooth, top3, sentences, cascade, CASCADE, CASCADE_TITLES } from "./probe.js";
 
 const MODEL_ID = "gemma-4-E2B-it-q4f16_1-MLC";
@@ -361,6 +361,8 @@ browser.runtime.onConnect.addListener(async (port) => {
       setStatus(snapOn ? "Snapshot on: each reply is recorded word by word (slower replies)." : "Snapshot off.");
       send(snapshot());
     }
+    if (msg.type === "filters") port.postMessage(ytState());
+    if (msg.type === "set-filters") setYoutubeSettings(msg);
     if (msg.type === "clear" && partial === null) {
       history = [];
       engine?.resetChat();
@@ -375,15 +377,18 @@ browser.runtime.onConnect.addListener(async (port) => {
     else setStatus("Model not installed yet.");
   }
   port.postMessage(snapshot());
+  port.postMessage(ytState());
 });
 // YouTube: videos read from the page's own data and downloads before it draws them (youtube/intercept.js); each home
 // tile is shown only once the filter below has passed it.
 window.youtubeVideos = youtubeVideos;
 // What the YouTube filter blocks. Layer 2: each filter has its own gate (the probe score below which the judge isn't
 // asked), tuned by hand-labelling 129 home-feed videos (2026-10-30): AI 2.5 (judge runs 30% → 11%, no misses); gaming
-// stays 1.5 (its probe is weak on short titles: 2.0 already misses 4 of 42). A new filter gets 1.5.
-// ponytail: a fixed list; a popup field once it needs changing.
+// stays 1.5 (its probe is weak on short titles: 2.0 already misses 4 of 42). A new filter gets 1.5. The user's list is
+// set in the popup and kept in extension storage ("yt-settings"); these are the first-run defaults.
 const YOUTUBE_FILTERS = [{ sentence: "anything about gaming", gate: 1.5 }, { sentence: "anything about AI", gate: 2.5 }];
+const NEW_GATE = 1.5;
+let yt = { enabled: true, filters: YOUTUBE_FILTERS };
 
 // Layer 4: batches. WebLLM's memory (KV cache) holds one sequence, so the filter makes its own with room for 16, using
 // the model's own create_kv_cache, and runs many texts through the model in ONE GPU pass, each in its own sequence (so
@@ -540,12 +545,40 @@ async function judgeYoutube(videos, fls) {
   });
   return rows.map((r) => ({ blocked: Object.values(r.verdicts).some((x) => x.blocked), verdicts: r.verdicts, batched: youtubeBatch === true }));
 }
-let youtubeFls = null;
-async function youtubeFilters() {
-  if (!youtubeFls) { const fls = []; for (const f of YOUTUBE_FILTERS) fls.push({ ...(await makeFilter(f.sentence)), gate: f.gate }); youtubeFls = fls; }
-  return youtubeFls;
+const builtFilters = new Map(); // sentence → its probe, built once
+async function filtersFor(sentences) {
+  const out = [];
+  for (const s of sentences) {
+    if (!builtFilters.has(s)) builtFilters.set(s, { ...(await makeFilter(s)), gate: yt.filters.find((f) => f.sentence === s)?.gate ?? NEW_GATE });
+    out.push(builtFilters.get(s));
+  }
+  return out;
 }
-setYoutubeJudge(async (videos) => judgeYoutube(videos, await youtubeFilters()), JSON.stringify({ filters: YOUTUBE_FILTERS, rule: CASCADE_TITLES, v: 1 }));
+const youtubeFilters = () => filtersFor(yt.filters.map((f) => f.sentence));
+setYoutubeJudge(async (videos, sentences) => judgeYoutube(videos, await filtersFor(sentences)), JSON.stringify({ rule: CASCADE_TITLES, v: 2 }));
+const ytState = () => ({ type: "filters", enabled: yt.enabled, filters: yt.filters.map((f) => f.sentence), stats: youtubeStats() });
+function applyYoutube(reset) {
+  setYoutubeFilters(yt.filters.map((f) => f.sentence));
+  setYoutubeEnabled(yt.enabled && yt.filters.length > 0);
+  if (reset) browser.tabs.query({ url: "https://www.youtube.com/*" }).then((ts) => ts.forEach((t) => browser.tabs.sendMessage(t.id, { type: "yt-reset" }).catch(() => {})));
+  send(ytState());
+}
+// from the popup: the new list of filter sentences (any number), or filtering on/off
+function setYoutubeSettings(msg) {
+  if (msg.filters) {
+    const seen = new Set(), list = [];
+    for (const raw of msg.filters) {
+      const s = String(raw).replace(/\s+/g, " ").trim().slice(0, 200);
+      if (s && !seen.has(s.toLowerCase())) { seen.add(s.toLowerCase()); list.push({ sentence: s, gate: yt.filters.find((f) => f.sentence === s)?.gate ?? YOUTUBE_FILTERS.find((f) => f.sentence === s)?.gate ?? NEW_GATE }); }
+    }
+    yt = { ...yt, filters: list };
+  }
+  if ("enabled" in msg) yt = { ...yt, enabled: !!msg.enabled };
+  browser.storage.local.set({ "yt-settings": yt }).catch(() => {});
+  applyYoutube(true);
+}
+applyYoutube(false);
+browser.storage.local.get("yt-settings").then((r) => { if (r["yt-settings"]) { yt = r["yt-settings"]; applyYoutube(true); } }).catch(() => {});
 // Report only: every video read so far through the given filters, in feed order.
 window.filterYoutube = async (filterSentences) => {
   const fls = [];

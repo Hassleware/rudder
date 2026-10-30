@@ -33,7 +33,7 @@
   // fills from the top with no holes ("ready" = passed, waiting for an earlier tile). Rejected tiles leave the grid.
   // A tile that stays undecided for more than 5 s (e.g. YouTube never filled it in) stops holding the rest back: it
   // stays hidden and the ones after it may show.
-  const since = new WeakMap();
+  let since = new WeakMap();
   function reveal(tiles) {
     let open = true;
     const shown = [], t = Date.now();
@@ -149,7 +149,15 @@
   let timer = null;
   const soon = () => { clearTimeout(timer); timer = setTimeout(check, 50); };
   new MutationObserver(() => { gateShort(); pauseIfHidden(); soon(); }).observe(document.documentElement, { childList: true, subtree: true });
-  browser.runtime.onMessage.addListener((msg) => { if (msg?.type === "yt-ready") soon(); });
+  browser.runtime.onMessage.addListener((msg) => {
+    if (msg?.type === "yt-ready") soon();
+    if (msg?.type === "yt-reset") { // the filters changed: every video is decided again (hidden until then)
+      for (const el of document.querySelectorAll("[gemma-verdict]")) el.removeAttribute("gemma-verdict");
+      host()?.removeAttribute("gemma-id");
+      since = new WeakMap();
+      check();
+    }
+  });
   addEventListener("scroll", soon, { passive: true }); // tiles' distance from the screen decides what's filtered next
   setInterval(check, 1000); // catches thumbnails the page drew from its own memory (no download for us to see)
   soon();

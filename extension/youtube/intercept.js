@@ -117,38 +117,58 @@ browser.webRequest.onBeforeRequest.addListener((d) => {
   });
 }, { urls: ["https://i.ytimg.com/vi/*", "https://i.ytimg.com/vi_webp/*"], types: ["image"] }, ["blocking"]);
 
-// The filter (background.js hands it in with setJudge) takes a batch of videos at a time, nearest to the screen first.
-// Layer 0, memory: every verdict is kept (per filter set, in extension storage), so a video seen before is decided
-// instantly. Layer 1, judging ahead: every video is queued as soon as YouTube's data arrives, before its tile exists or
-// is near the screen; tiles' distance from the screen only sets the order. If the model is busy (a chat), the batch
-// waits its turn.
-let judge = null, working = false, memKey = null, saveTimer = null;
-const queue = [], tabs = new Set(), memory = new Map();
+// The filter (background.js hands it in with setJudge) takes a batch of videos and the filter sentences to check them
+// against, nearest to the screen first. The sentences are the user's (setFilters, from the popup).
+// Layer 0, memory: every verdict is kept per video AND per filter sentence (in extension storage), so a video seen
+// before is decided instantly, removing a filter needs no new checks, and adding one checks only that one.
+// Layer 1, judging ahead: every video is queued as soon as YouTube's data arrives, before its tile exists or is near
+// the screen; tiles' distance from the screen only sets the order. If the model is busy (a chat), the batch waits.
+let judge = null, working = false, memKey = null, saveTimer = null, filters = [], enabled = true;
+const queue = [], tabs = new Set(), memory = new Map(); // memory: id → { sentence: { blocked, verdict } }
 const BATCH = 12;
+const missing = (v) => filters.filter((s) => !(s in (v.verdicts ?? {})));
+const decided = (v) => !missing(v).length;
+const blocked = (v) => filters.some((s) => v.verdicts?.[s]?.blocked);
 export async function setJudge(fn, signature) {
   judge = fn;
   if (signature && memKey !== "yt-verdicts:" + signature) {
     memKey = "yt-verdicts:" + signature;
     memory.clear();
-    const saved = (await browser.storage.local.get(memKey).catch(() => ({})))[memKey] ?? {};
-    for (const [id, f] of Object.entries(saved)) memory.set(id, f);
-    for (const v of videos.values()) if (!v.filter && memory.has(v.id)) v.filter = { ...memory.get(v.id), remembered: true };
+    const all = await browser.storage.local.get(null).catch(() => ({}));
+    for (const [id, f] of Object.entries(all[memKey] ?? {})) memory.set(id, f);
+    browser.storage.local.remove(Object.keys(all).filter((k) => k.startsWith("yt-verdicts:") && k !== memKey)).catch(() => {}); // older formats
+    for (const v of videos.values()) v.verdicts = { ...memory.get(v.id), ...v.verdicts };
   }
   for (const v of videos.values()) enqueue(v);
   work();
 }
+export function setFilters(list) {
+  filters = [...list];
+  for (const v of videos.values()) enqueue(v);
+}
+export function setEnabled(on) {
+  enabled = on;
+  for (const v of videos.values()) enqueue(v);
+}
+// this session's videos: how many were checked against every filter, how many are hidden, and by which filter
+export function stats() {
+  const done = [...videos.values()].filter((v) => v.title && decided(v));
+  return { checked: done.length, hidden: done.filter(blocked).length, by: Object.fromEntries(filters.map((s) => [s, done.filter((v) => v.verdicts[s]?.blocked).length])) };
+}
 function remember(v) {
+  const keep = Object.fromEntries(Object.entries(v.verdicts).filter(([, x]) => !x.error).map(([s, x]) => [s, { blocked: x.blocked, verdict: x.verdict }]));
   memory.delete(v.id);
-  memory.set(v.id, (({ blocked, verdicts }) => ({ blocked, verdicts }))(v.filter));
+  memory.set(v.id, keep);
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => { // keep the newest 5000
+  saveTimer = setTimeout(() => { // keep the newest 5000 videos
     const all = [...memory].slice(-5000);
     browser.storage.local.set({ [memKey]: Object.fromEntries(all) }).catch(() => {});
   }, 2000);
 }
 function enqueue(v) {
-  if (!judge || !v.title || v.filter || v.queued) return;
-  if (memory.has(v.id)) { v.filter = { ...memory.get(v.id), remembered: true }; v.filteredAt = now(); return; }
+  if (!judge || !enabled || !v.title || v.queued) return;
+  v.verdicts = { ...memory.get(v.id), ...v.verdicts };
+  if (decided(v)) return;
   v.queued = true;
   queue.push(v);
   work();
@@ -166,17 +186,35 @@ async function work() {
   working = true;
   try {
     while (queue.length) {
+      if (!judge || !enabled) break; // switched off meanwhile: the queue waits
       const batch = [];
       while (queue.length && batch.length < BATCH) batch.push(next());
-      let results;
-      if (!judge) { queue.push(...batch); break; } // filtering switched off meanwhile: keep them for later
-      try {
-        results = await judge(batch);
-      } catch (err) {
-        if (/busy/i.test(err.message)) { queue.push(...batch); await new Promise((r) => setTimeout(r, 1000)); continue; }
-        results = batch.map(() => ({ blocked: false, error: err.message })); // ponytail: a failed check shows the video; fail closed if that matters
+      // videos missing the same filters are checked together
+      const groups = new Map();
+      for (const v of batch) {
+        const m = missing(v);
+        if (!m.length) { v.queued = false; continue; }
+        const key = m.join("\n");
+        groups.set(key, [...(groups.get(key) ?? []), v]);
       }
-      batch.forEach((v, k) => { v.filter = results[k]; v.filteredAt = now(); if (!v.filter.error) remember(v); });
+      for (const [key, vs] of groups) {
+        const sentences = key.split("\n");
+        let results;
+        try {
+          results = await judge(vs, sentences);
+        } catch (err) {
+          if (/busy/i.test(err.message)) { queue.push(...vs); await new Promise((r) => setTimeout(r, 1000)); continue; }
+          // ponytail: a failed check shows the video (not remembered, so it's checked again next session); fail closed if that matters
+          results = vs.map(() => ({ verdicts: Object.fromEntries(sentences.map((s) => [s, { blocked: false, error: err.message }])) }));
+        }
+        vs.forEach((v, k) => {
+          v.queued = false;
+          Object.assign(v.verdicts, results[k].verdicts);
+          v.filteredAt = now();
+          remember(v);
+          enqueue(v); // filters added meanwhile
+        });
+      }
       for (const t of tabs) poke(t);
     }
   } finally {
@@ -192,11 +230,12 @@ export function verdict({ id, imageLoaded, title, channel, dist, viewer }) {
   let v = videos.get(id);
   if (!v && title) videos.set(id, (v = { id, title, channel, order: ++order, source: "tile", seenAt: now() }));
   if (v && !v.title && title) Object.assign(v, { title, channel: v.channel ?? channel, source: "tile", seenAt: v.seenAt ?? now() });
+  if (!enabled) return "show"; // filtering switched off in the popup
   if (!v?.title) return "wait";
   v.dist = dist;
-  if (!v.filter) { enqueue(v); return "wait"; }
-  if (v.filter.blocked) return "block";
-  if (!v.image && !viewer) { // the Shorts viewer plays the video itself: no thumbnail to wait for
+  if (!decided(v)) { enqueue(v); return "wait"; }
+  if (blocked(v)) return "block";
+  if (!v.image && !viewer && !v.shownAt) { // the Shorts viewer plays the video itself, and a tile shown before already had its thumbnail
     if (!imageLoaded) return "wait";
     v.imageLoadedAt ??= now();
     if (now() - v.imageLoadedAt < 2000) return "wait";
