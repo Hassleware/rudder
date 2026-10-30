@@ -14,9 +14,9 @@
 </head>
 <body>
   <h1>Filter benchmark</h1>
-  <p>Scores the filter the viewer uses (probe.js) on 10 filters: 5 the method was chosen on, and 5 held out. Each passage
-    "fires" if any token's score (smoothed a little) goes over the filter's fixed threshold. AUROC = on-topic passages ranked
-    above off-topic ones (1 = perfect, 0.5 = guessing). Uses the GPU for about a minute and clears the chat's memory (the
+  <p>Scores the filter the viewer uses (probe.js: probe on every word, Gemma judging only unsure sentences, one ensemble
+    score) on 10 filters: 5 the method was chosen on, and 5 held out. A passage "fires" if any of its sentences is blocked.
+    AUROC = on-topic passages ranked above off-topic ones by the cascade's score (1 = perfect, 0.5 = guessing). Uses the GPU for about three minutes and clears the chat's memory (the
     next message re-reads the chat). The search behind the method is research/probe-research.mjs.</p>
   <button id="go">Run benchmark</button>
   <button id="hay" title="Pages of ordinary text with one passing mention hidden inside (about 5 minutes of GPU)">Run long-text test</button>

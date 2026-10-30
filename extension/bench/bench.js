@@ -4,7 +4,7 @@ const pct = (x) => (100 * x).toFixed(0) + "%";
 
 function show(r) {
   $("log").textContent += `\nDone in ${r.seconds} s.`;
-  const head = ["filter", "AUROC", "direct hit", "indirect hit", "look-alike fire", "other-topic fire", "ordinary fire", "mixed: fired early", "mixed: tokens to fire"];
+  const head = ["filter", "AUROC", "direct hit", "indirect hit", "look-alike fire", "other-topic fire", "ordinary fire", "mixed: fired early", "mixed: sentences to fire"];
   const tr = (cells, tag = "td") => { const e = document.createElement("tr"); for (const c of cells) e.append(Object.assign(document.createElement(tag), { textContent: c })); return e; };
   const rows = [];
   for (const [split, title] of [["dev", "Dev filters (the research chose the method on these)"], ["test", "Held-out filters (never used to choose anything)"]]) {
@@ -14,20 +14,19 @@ function show(r) {
   $("out").replaceChildren(...rows);
 }
 
-// long-text test: false alarms over the pages, and each hidden needle's confidence tier
+// long-text test: false alarms and judge calls over the pages, and whether each hidden needle was blocked
 function showHay(r) {
   $("log").textContent += `\nDone in ${r.seconds} s.`;
   const tr = (cells, tag = "td") => { const e = document.createElement("tr"); for (const c of cells) e.append(Object.assign(document.createElement(tag), { textContent: c })); return e; };
-  const cell = (n) => `${n.tier === "none" ? "missed" : n.tier} (peak ${n.peak.toFixed(1)})`;
-  const mentions = r.needles.filter((n) => n.kind === "mention"), look = r.needles.filter((n) => n.kind === "look-alike");
-  const share = (ns, test) => `${ns.filter(test).length}/${ns.length}`;
+  const cell = (n) => `${n.caught ? "BLOCKED" : "missed"} (${n.verdict}, peak ${n.peak?.toFixed(1) ?? "–"}${n.margin !== undefined ? `, judge ${n.margin.toFixed(1)}` : ""})`;
+  const share = (kind) => { const ns = r.needles.filter((n) => n.kind === kind); return `${ns.filter((n) => n.caught).length}/${ns.length}`; };
   const rows = [
-    tr([`Passing mentions flagged: ${share(mentions, (n) => n.tier !== "none")} (medium or high: ${share(mentions, (n) => n.tier === "medium" || n.tier === "high")}). Look-alikes flagged: ${share(look, (n) => n.tier !== "none")} (medium or high: ${share(look, (n) => n.tier === "medium" || n.tier === "high")}).`], "th"),
-    tr(["Hidden needle (tier of its over-threshold words; peak score)"], "th"), tr(["filter", "mention 1", "mention 2", "on-topic sentence", "look-alike"], "th"),
+    tr([`Blocked: passing mentions ${share("mention")}, on-topic sentences ${share("direct")}, look-alikes ${share("look-alike")}.`], "th"),
+    tr(["Hidden needle (verdict for its sentence)"], "th"), tr(["filter", "mention 1", "mention 2", "on-topic sentence", "look-alike"], "th"),
   ];
   for (const f of r.quiet.map((q) => q.filter)) rows.push(tr([f, ...r.needles.filter((n) => n.filter === f).map(cell)]));
-  rows.push(tr([`The pages alone, no needle (${r.quiet[0].tokens} tokens): words over the threshold, by tier`], "th"), tr(["filter", "per 1000 words", "low", "medium", "high"], "th"));
-  for (const q of r.quiet) rows.push(tr([q.filter, (1000 * q.over / q.tokens).toFixed(1), q.low, q.medium, q.high]));
+  rows.push(tr([`The pages alone, no needle (${r.quiet[0].words} words)`], "th"), tr(["filter", "sentences blocked", "judge calls", "judge calls per 1000 words"], "th"));
+  for (const q of r.quiet) rows.push(tr([q.filter, q.blocked, q.judged, (1000 * q.judged / q.words).toFixed(1)]));
   $("out").replaceChildren(...rows);
 }
 
