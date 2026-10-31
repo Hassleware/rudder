@@ -9,6 +9,7 @@
 //   - the page's thumbnail downloads from i.ytimg.com (same way): the image bytes, before the page decodes them
 // youtube/feed.js keeps each home tile hidden until verdict() says it may be shown: after its title has been read,
 // the filter (setJudge) has passed it and its thumbnail has been read. Rejected tiles are removed from the grid.
+import { keywordMatch } from "./keywords.js";
 export const videos = new Map(); // id → { id, title, channel, thumbnail, order, shelf, short, seenAt, image, imageAt, ... }
 let order = 0;
 const now = () => Date.now();
@@ -112,6 +113,7 @@ browser.webRequest.onBeforeRequest.addListener((d) => {
       v.image = bytes;
       v.imageType = bytes[8] === 0x57 && bytes[9] === 0x45 ? "image/webp" : "image/jpeg"; // "WEBP" at byte 8
       v.imageAt ??= now();
+      enqueue(v); // title (if known) and thumbnail are both in: judge it
     }
     poke(d.tabId);
   });
@@ -127,8 +129,15 @@ let judge = null, working = false, memKey = null, saveTimer = null, filters = []
 const queue = [], tabs = new Set(), memory = new Map(); // memory: id → { sentence: { blocked, verdict } }
 const BATCH = 12;
 const missing = (v) => filters.filter((s) => !(s in (v.verdicts ?? {})));
-const decided = (v) => !missing(v).length;
 const blocked = (v) => filters.some((s) => v.verdicts?.[s]?.blocked);
+const decided = (v) => blocked(v) || !missing(v).length; // one filter hiding it is enough
+// the keyword layer (youtube/keywords.js): no model, runs the moment a title is known
+function keywords(v) {
+  for (const s of missing(v)) {
+    const m = keywordMatch(s, v.title, v.channel);
+    if (m) v.verdicts[s] = { blocked: true, verdict: "keyword: " + m };
+  }
+}
 export async function setJudge(fn, signature) {
   judge = fn;
   if (signature && memKey !== "yt-verdicts:" + signature) {
@@ -168,7 +177,9 @@ function remember(v) {
 function enqueue(v) {
   if (!judge || !enabled || !v.title || v.queued) return;
   v.verdicts = { ...memory.get(v.id), ...v.verdicts };
+  keywords(v);
   if (decided(v)) return;
+  if (!v.image && !v.noImage) return; // wait for the thumbnail: it's judged together with the title
   v.queued = true;
   queue.push(v);
   work();
@@ -192,8 +203,9 @@ async function work() {
       // videos missing the same filters are checked together
       const groups = new Map();
       for (const v of batch) {
+        keywords(v); // filters added since it was queued
         const m = missing(v);
-        if (!m.length) { v.queued = false; continue; }
+        if (decided(v)) { v.queued = false; continue; }
         const key = m.join("\n");
         groups.set(key, [...(groups.get(key) ?? []), v]);
       }
@@ -204,8 +216,9 @@ async function work() {
           results = await judge(vs, sentences);
         } catch (err) {
           if (/busy/i.test(err.message)) { queue.push(...vs); await new Promise((r) => setTimeout(r, 1000)); continue; }
-          // ponytail: a failed check shows the video (not remembered, so it's checked again next session); fail closed if that matters
-          results = vs.map(() => ({ verdicts: Object.fromEntries(sentences.map((s) => [s, { blocked: false, error: err.message }])) }));
+          // strict: a failed check hides the video (not remembered, so it's checked again next session)
+          console.warn("rudder: check failed, hiding:", err);
+          results = vs.map(() => ({ verdicts: Object.fromEntries(sentences.map((s) => [s, { blocked: true, verdict: "check failed", error: err.message }])) }));
         }
         vs.forEach((v, k) => {
           v.queued = false;
@@ -233,14 +246,13 @@ export function verdict({ id, imageLoaded, title, channel, dist, viewer }) {
   if (!enabled) return "show"; // filtering switched off in the popup
   if (!v?.title) return "wait";
   v.dist = dist;
-  if (!decided(v)) { enqueue(v); return "wait"; }
+  // no thumbnail download to read: the Shorts viewer (it plays the video itself), or the page drew the thumbnail from
+  // its own memory (allowed 2 s after it appeared): judged on the title alone
+  if (!v.image && !v.noImage && (viewer || (imageLoaded && now() - (v.imageLoadedAt ??= now()) >= 2000))) v.noImage = true;
+  enqueue(v); // runs the keyword check too
   if (blocked(v)) return "block";
-  if (!v.image && !viewer && !v.shownAt) { // the Shorts viewer plays the video itself, and a tile shown before already had its thumbnail
-    if (!imageLoaded) return "wait";
-    v.imageLoadedAt ??= now();
-    if (now() - v.imageLoadedAt < 2000) return "wait";
-    v.imageNotSeen = true;
-  }
+  if (!decided(v)) return "wait";
+  if (!v.image && !v.noImage && !v.shownAt) return "wait";
   return "show";
 }
 
