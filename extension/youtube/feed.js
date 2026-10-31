@@ -3,7 +3,8 @@
 // until the background page, which has read the video's title (from the page's own data) and thumbnail (from the page's
 // own image download) and run the filter, says "show"; "block" takes it out. Invisible ones keep their size, so the
 // layout and YouTube's lazy image loading work as normal. This script reads the page and where tiles are; it doesn't
-// scroll or request anything. Never filtered: the video being watched, the short the Shorts viewer was opened on, the
+// scroll or request anything itself. One exception, fill(): when Rudder has removed videos, it lets YouTube's own
+// "load more" fetch the next page, as a scroll would. Never filtered: the video being watched, the short the Shorts viewer was opened on, the
 // playlist panel.
 (() => {
   // add a page script (youtube/page.js) so the page's own data can be read, and pass it to the background page
@@ -183,6 +184,27 @@
     }
   }
 
+  // Fill the feed: once Rudder has removed videos from the home grid or the sidebar, YouTube's own "load more" spot
+  // (what a scroll would reach) is briefly pinned on screen, invisible, so YouTube fetches its next page itself: the
+  // same request a scroll sends. Stops when the spot is 2 screens below the window, or after 4 pages per visit.
+  const MORE = [GRID, "ytd-watch-next-secondary-results-renderer"];
+  let pages = { href: null, n: 0 };
+  function fill() {
+    if (pages.href !== location.href) pages = { href: location.href, n: 0 };
+    for (const box of MORE) {
+      const list = document.querySelector(box), spot = list?.querySelector("ytd-continuation-item-renderer");
+      if (!spot || spot.hasAttribute("rudder-more") || pages.n >= 4 || !list.querySelector('[gemma-verdict="block"]')) continue;
+      const top = spot.getBoundingClientRect().top;
+      if (top < innerHeight || top > 3 * innerHeight) continue; // on screen: YouTube loads it anyway; far: enough
+      pages.n++;
+      spot.setAttribute("rudder-more", "");
+      const was = spot.style.cssText;
+      spot.style.cssText = was + ";position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none";
+      // YouTube asks for the page as soon as it sees the spot; put it back (YouTube may reuse it for the next page)
+      setTimeout(() => { spot.style.cssText = was; spot.removeAttribute("rudder-more"); }, 1500);
+    }
+  }
+
   async function check(recheck = false) {
     if (busy) { again = true; return; }
     busy = true;
@@ -216,6 +238,7 @@
       }
       lists.forEach(reveal);
       settleShelves();
+      fill();
       await autoplay();
       await shorts();
     } finally {
