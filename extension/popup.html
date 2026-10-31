@@ -7,11 +7,11 @@
 <style>
   :root {
     color-scheme: light dark;
-    --bg: #ffffff; --fg: #15202b; --muted: #5b6875; --line: #e3e8ee; --field: #f4f7fa; --accent: #2d8fd0; --on-accent: #ffffff; --accent-soft: #5bb8f022; --danger: #c0392b;
+    --bg: #ffffff; --fg: #15202b; --muted: #5b6875; --line: #e3e8ee; --field: #f4f7fa; --accent: #2d8fd0; --on-accent: #ffffff; --danger: #c0392b;
     font: 14px/1.4 system-ui, sans-serif;
   }
   @media (prefers-color-scheme: dark) {
-    :root { --bg: #14191f; --fg: #e8eef4; --muted: #95a3b1; --line: #2a333d; --field: #1d242c; --accent: #5bb8f0; --on-accent: #0b1620; --accent-soft: #5bb8f026; --danger: #ff6b5b; }
+    :root { --bg: #14191f; --fg: #e8eef4; --muted: #95a3b1; --line: #2a333d; --field: #1d242c; --accent: #5bb8f0; --on-accent: #0b1620; --danger: #ff6b5b; }
   }
   * { box-sizing: border-box; }
   body { margin: 0; width: 380px; max-height: 600px; overflow-y: auto; background: var(--bg); color: var(--fg); padding: 16px; }
@@ -34,9 +34,9 @@
   .hint { font-size: 12px; color: var(--muted); margin: 0 0 8px; }
   #list { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 6px; }
   #list li { display: flex; align-items: center; gap: 6px; }
-  input[type=text], #list input, textarea { font: inherit; color: var(--fg); background: var(--field); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; min-width: 0; }
+  input[type=text], #list input { font: inherit; color: var(--fg); background: var(--field); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; min-width: 0; }
   #list input { flex: 1; }
-  input:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   .count { font-size: 11px; color: var(--muted); white-space: nowrap; min-width: 58px; text-align: right; }
   button { font: inherit; color: var(--fg); background: var(--field); border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
   button:hover { border-color: var(--accent); }
@@ -47,17 +47,6 @@
   #add input { flex: 1; }
   body.off #list, body.off #add { opacity: .55; }
   .where { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
-  details summary { cursor: pointer; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
-  details[open] summary { margin-bottom: 8px; }
-  .tools { display: flex; gap: 6px; margin-bottom: 6px; }
-  #log { max-height: 220px; overflow-y: auto; margin: 6px 0; }
-  .msg { white-space: pre-wrap; padding: 7px 10px; border-radius: 8px; margin: 5px 0; }
-  .user { background: var(--field); margin-left: 15%; }
-  .assistant { background: var(--accent-soft); margin-right: 15%; }
-  .error { background: #c0392b22; }
-  #f { display: flex; gap: 6px; }
-  #f textarea { flex: 1; resize: none; }
-  #snap.on { background: var(--accent); color: var(--on-accent); }
 </style>
 </head>
 <body>
@@ -89,7 +78,7 @@
       <label class="switch" title="Turn filtering on or off"><input type="checkbox" id="enabled" aria-label="Filter YouTube"><span></span></label>
     </div>
     <div id="stats"></div>
-    <p class="where">Home, search, channel pages, related videos and Shorts. Videos stay hidden until checked; the one you're watching is never hidden.</p>
+    <p class="where">Home, Subscriptions, search, channel pages, related videos, Shorts and autoplay. Strict: a video stays hidden until checked, and anything in doubt stays hidden. The player's end-screen suggestions are always hidden. The video you chose to watch is never hidden.</p>
   </section>
 
   <section>
@@ -102,20 +91,6 @@
     </form>
   </section>
 
-  <section>
-    <details>
-      <summary>Chat with the model</summary>
-      <div class="tools">
-        <button id="clear" title="Start a new chat">New chat</button>
-        <button id="snap" title="When on, each reply is recorded word by word (every layer's output) and shown in the snapshot tab">Snapshot: off</button>
-      </div>
-      <div id="log"></div>
-      <form id="f">
-        <textarea id="q" rows="2" placeholder="Say something… (Enter to send)"></textarea>
-        <button id="send">Send</button>
-      </form>
-    </details>
-  </section>
   <script src="popup.js"></script>
 </body>
 </html>

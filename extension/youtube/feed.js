@@ -21,6 +21,8 @@
   const SIDE = "ytd-watch-next-secondary-results-renderer :is(yt-lockup-view-model, ytd-compact-video-renderer)";
   const SEARCH = "ytd-search :is(ytd-video-renderer, grid-shelf-view-model ytm-shorts-lockup-view-model-v2)";
   const CHANNEL = 'ytd-browse[page-subtype="channels"] :is(ytd-rich-item-renderer, ytd-shelf-renderer yt-lockup-view-model, ytd-reel-shelf-renderer ytm-shorts-lockup-view-model-v2)';
+  // every other feed page (Subscriptions, Trending/Explore, topic pages); not your own playlists or history
+  const OTHER = 'ytd-browse:not([page-subtype="home"]):not([page-subtype="channels"]):not([page-subtype="playlist"]):not([page-subtype="history"]) :is(ytd-rich-item-renderer, ytd-video-renderer, ytd-grid-video-renderer, ytd-shelf-renderer yt-lockup-view-model, ytd-reel-shelf-renderer ytm-shorts-lockup-view-model-v2)';
   const GRID = 'ytd-browse[page-subtype="home"] ytd-rich-grid-renderer';
   let busy = false, again = false;
   const text = (el) => el?.textContent.trim().replace(/\s+/g, " ") || null;
@@ -107,11 +109,25 @@
     } else pauseIfHidden();
   }
 
+  // Autoplay: when a video ends, YouTube counts down to the next one. It may only start if that video has passed;
+  // otherwise the countdown is cancelled with YouTube's own Cancel button (the countdown stays hidden until decided).
+  async function autoplay() {
+    const over = document.querySelector(".ytp-autonav-endscreen-countdown-overlay");
+    if (!over || over.offsetParent === null || getComputedStyle(over).display === "none") return;
+    const href = over.querySelector("a.ytp-autonav-endscreen-link-container, a[href*='/watch?v=']")?.getAttribute("href") ?? "";
+    const id = href.match(/[?&]v=([\w-]{11})/)?.[1];
+    if (over.getAttribute("gemma-id") === id && over.getAttribute("gemma-verdict") === "show") return;
+    over.setAttribute("gemma-id", id ?? "");
+    const v = id ? (await browser.runtime.sendMessage({ type: "yt-tiles", tiles: [{ id, viewer: true, dist: 0, title: over.querySelector(".ytp-autonav-endscreen-video-info-title, .ytp-autonav-endscreen-upnext-title")?.textContent.trim() }] }))?.[id] : null;
+    if (v === "show") { over.setAttribute("gemma-verdict", "show"); return; }
+    over.querySelector(".ytp-autonav-endscreen-upnext-cancel-button, button[aria-label*='Cancel' i]")?.click(); // strict: not passed (yet) → no autoplay
+  }
+
   async function check() {
     if (busy) { again = true; return; }
     busy = true;
     try {
-      const lists = [TILES, SEARCH, CHANNEL, SIDE].map((s) => [...document.querySelectorAll(s)]), ask = [];
+      const lists = [TILES, SEARCH, CHANNEL, OTHER, SIDE].map((s) => [...document.querySelectorAll(s)]), ask = [];
       const watching = new URLSearchParams(location.search).get("v");
       for (const tile of lists.flat()) {
         if (tile.querySelector("ytd-ad-slot-renderer")) { tile.setAttribute("gemma-verdict", "block"); continue; } // ad
@@ -139,6 +155,7 @@
       }
       lists.forEach(reveal);
       settleShelves();
+      await autoplay();
       await shorts();
     } finally {
       busy = false;

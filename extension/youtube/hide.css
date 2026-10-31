@@ -5,11 +5,19 @@ ytd-browse[page-subtype="home"] ytd-rich-item-renderer:not([gemma-verdict="show"
 ytd-search :is(ytd-video-renderer, grid-shelf-view-model ytm-shorts-lockup-view-model-v2):not([gemma-verdict="show"]),
 ytd-browse[page-subtype="channels"] :is(ytd-rich-item-renderer, ytd-shelf-renderer yt-lockup-view-model, ytd-reel-shelf-renderer ytm-shorts-lockup-view-model-v2):not([gemma-verdict="show"]),
 ytd-shorts:not([gemma-verdict="show"]) ytd-reel-video-renderer,
+ytd-browse:not([page-subtype="home"]):not([page-subtype="channels"]):not([page-subtype="playlist"]):not([page-subtype="history"]) :is(ytd-rich-item-renderer, ytd-video-renderer, ytd-grid-video-renderer, ytd-shelf-renderer yt-lockup-view-model, ytd-reel-shelf-renderer ytm-shorts-lockup-view-model-v2):not([gemma-verdict="show"]),
+.ytp-autonav-endscreen-countdown-overlay:not([gemma-verdict="show"]),
 ytd-watch-next-secondary-results-renderer :is(yt-lockup-view-model, ytd-compact-video-renderer):not([gemma-verdict="show"]) {
   visibility: hidden !important;
 }
+/* the player's own recommendations (end screen wall, end cards, the in-player "more videos" grid and pause overlay):
+   there's no time to check them before they appear, so they never do */
+.ytp-endscreen-content, .ytp-ce-element, .ytp-videowall-still, .ytp-pause-overlay, .ytp-fullscreen-grid, .ytp-fullscreen-grid-stills-container {
+  display: none !important;
+}
 /* rejected by the filter (or an ad): taken out, so the rest close up */
 ytd-browse[page-subtype="home"] ytd-rich-item-renderer[gemma-verdict="block"],
+ytd-browse:not([page-subtype="home"]):not([page-subtype="channels"]):not([page-subtype="playlist"]):not([page-subtype="history"]) :is(ytd-rich-item-renderer, ytd-video-renderer, ytd-grid-video-renderer, ytd-shelf-renderer yt-lockup-view-model, ytd-reel-shelf-renderer ytm-shorts-lockup-view-model-v2)[gemma-verdict="block"],
 ytd-search :is(ytd-video-renderer, grid-shelf-view-model ytm-shorts-lockup-view-model-v2)[gemma-verdict="block"],
 ytd-browse[page-subtype="channels"] :is(ytd-rich-item-renderer, ytd-shelf-renderer yt-lockup-view-model, ytd-reel-shelf-renderer ytm-shorts-lockup-view-model-v2)[gemma-verdict="block"],
 ytd-watch-next-secondary-results-renderer :is(yt-lockup-view-model, ytd-compact-video-renderer)[gemma-verdict="block"] {

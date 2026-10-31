@@ -1,5 +1,5 @@
-// The toolbar popup: model status and setup, YouTube filtering on/off, the user's filter sentences (as many as they
-// like), and a chat with the model. Everything lives in background.js; closing the popup loses nothing.
+// The toolbar popup: model status and setup, YouTube filtering on/off, and the user's filter sentences (as many as
+// they like). Everything lives in background.js; closing the popup loses nothing.
 const $ = (id) => document.getElementById(id);
 const port = browser.runtime.connect();
 let current = null; // the assistant bubble being written
@@ -53,57 +53,12 @@ $("enabled").addEventListener("change", () => port.postMessage({ type: "set-filt
 const poll = setInterval(() => port.postMessage({ type: "filters" }), 1500); // live counts while open
 addEventListener("unload", () => clearInterval(poll));
 
-// ---- chat ----
-const add = (role, text) => {
-  const d = Object.assign(document.createElement("div"), { className: `msg ${role}`, textContent: text });
-  $("log").append(d);
-  d.scrollIntoView({ block: "nearest" });
-  return d;
-};
-const setBusy = (busy) => { $("send").disabled = $("clear").disabled = busy; };
-
 port.onMessage.addListener((m) => {
   if (m.type === "filters") renderFilters(m);
-  else if (m.type === "init") {
-    $("log").replaceChildren();
-    for (const h of m.history) add(h.role, h.content);
-    current = m.partial !== null ? add("assistant", m.partial) : null;
-    setBusy(m.partial !== null);
-    $("status").textContent = m.status;
-    $("setup").hidden = !m.setup;
-    $("snap").textContent = m.snapOn ? "Snapshot: on" : "Snapshot: off";
-    $("snap").classList.toggle("on", m.snapOn);
-  } else if (m.type === "status") {
-    $("status").textContent = m.text;
-  } else if (m.type === "user") {
-    add("user", m.text);
-    current = add("assistant", "");
-    setBusy(true);
-  } else if (m.type === "delta") {
-    current.textContent += m.text;
-    current.scrollIntoView({ block: "nearest" });
-  } else if (m.type === "error") {
-    current?.remove();
-    add("error", "Error: " + m.text);
-  } else if (m.type === "done") {
-    current = null;
-    setBusy(false);
-    $("q").focus();
-  }
+  else if (m.type === "init") { $("status").textContent = m.status; $("setup").hidden = !m.setup; }
+  else if (m.type === "status") $("status").textContent = m.text;
 });
 
-$("f").addEventListener("submit", (e) => {
-  e.preventDefault();
-  const text = $("q").value.trim();
-  if (!text || $("send").disabled) return;
-  $("q").value = "";
-  port.postMessage({ type: "send", text });
-});
-$("q").addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("f").requestSubmit(); }
-});
-$("clear").addEventListener("click", () => port.postMessage({ type: "clear" }));
-$("snap").addEventListener("click", () => port.postMessage({ type: "snapshot" }));
 $("download").addEventListener("click", () => port.postMessage({ type: "load" }));
 // File pickers close popups in Firefox, so importing happens in its own tab.
 $("import").addEventListener("click", () => { browser.tabs.create({ url: "import.html" }); window.close(); });
