@@ -6,8 +6,7 @@
 // scroll or request anything. Never filtered: the video being watched, the short the Shorts viewer was opened on, the
 // playlist panel.
 (() => {
-  // put a script into the page so it can read the page's own data (youtube/page.js), and pass what it
-  // reads to the background page
+  // add a page script (youtube/page.js) so the page's own data can be read, and pass it to the background page
   const script = Object.assign(document.createElement("script"), { src: browser.runtime.getURL("youtube/page.js") });
   (document.head ?? document.documentElement).appendChild(script);
   script.onload = () => script.remove();
@@ -123,10 +122,72 @@
     over.querySelector(".ytp-autonav-endscreen-upnext-cancel-button, button[aria-label*='Cancel' i]")?.click(); // strict: not passed (yet) → no autoplay
   }
 
-  async function check() {
+  // Your own algorithm: 👍 / 👎 in each video's ⋮ menu (both of YouTube's menu styles). The menu belongs to the tile
+  // whose ⋮ was clicked last; Rudder's two items are copies of YouTube's own items (same look), with their own action.
+  const ALL = [TILES, SEARCH, CHANNEL, OTHER, SIDE].join(", ");
+  let menuFor = null; // { id, title, channel, tile, at }
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest?.("button");
+    const label = (btn?.getAttribute("aria-label") ?? "").toLowerCase();
+    const tile = btn?.closest(ALL);
+    if (!tile || !(label.includes("action menu") || label.includes("more actions"))) return;
+    menuFor = { id: idOf(tile), tile, at: Date.now(),
+      title: text(tile.querySelector("#video-title, .yt-lockup-metadata-view-model__title, h3")),
+      channel: text(tile.querySelector('a[href^="/@"]:not(#avatar-link), ytd-channel-name a, .yt-content-metadata-view-model__metadata-text')) };
+    for (const ms of [30, 120, 300, 600, 1000, 1600]) setTimeout(addMenuItems, ms); // the menu is built a moment after the click
+  }, true);
+  const ICON = {
+    up: "M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z",
+    down: "M15 3H6c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 23l6.59-6.59c.36-.36.58-.86.58-1.41V5c0-1.1-.9-2-2-2zm4 0v12h4V3h-4z",
+  };
+  const svg = (d) => {
+    const ns = "http://www.w3.org/2000/svg", s = document.createElementNS(ns, "svg"), p = document.createElementNS(ns, "path");
+    s.setAttribute("viewBox", "0 0 24 24"); s.setAttribute("width", "24"); s.setAttribute("height", "24"); s.setAttribute("fill", "currentColor"); s.style.display = "block";
+    p.setAttribute("d", d); s.append(p);
+    return s;
+  };
+  function toast(message) {
+    const t = Object.assign(document.createElement("div"), { textContent: message });
+    Object.assign(t.style, { position: "fixed", left: "50%", bottom: "24px", transform: "translateX(-50%)", zIndex: 99999, background: "#14191f", color: "#e8eef4", border: "1px solid #5bb8f0", borderRadius: "8px", padding: "10px 16px", font: "14px/1.4 Roboto, system-ui, sans-serif", boxShadow: "0 4px 16px #0006", transition: "opacity .3s" });
+    document.body.append(t);
+    setTimeout(() => { t.style.opacity = "0"; setTimeout(() => t.remove(), 400); }, 2600);
+  }
+  function addMenuItems() {
+    if (!menuFor || Date.now() - menuFor.at > 4000 || !menuFor.id) return;
+    const drop = [...document.querySelectorAll("tp-yt-iron-dropdown")].find((d) => d.getAttribute("aria-hidden") !== "true" && getComputedStyle(d).display !== "none" && d.getBoundingClientRect().height > 0);
+    const list = drop?.querySelector("yt-list-view-model, ytd-menu-popup-renderer #items");
+    const sample = list?.querySelector("yt-list-item-view-model:not([rudder-item]), ytd-menu-service-item-renderer:not([rudder-item])");
+    if (!sample || list.querySelector(`[rudder-item][rudder-for="${menuFor.id}"]`)) return;
+    for (const old of list.querySelectorAll("[rudder-item]")) old.remove(); // the menu is reused for the next video
+    const target = menuFor;
+    for (const [like, label] of [[true, "Rudder: more like this"], [false, "Rudder: less like this"]]) {
+      const item = sample.cloneNode(true);
+      item.setAttribute("rudder-item", ""); item.setAttribute("rudder-for", target.id);
+      item.removeAttribute("has-separator");
+      // the label in a plain element with the same look (the older menu's own text element resets itself)
+      const title = item.querySelector(".ytListItemViewModelTitle, yt-formatted-string.title");
+      if (title) { const span = Object.assign(document.createElement("span"), { className: title.className, textContent: label }); title.replaceWith(span); }
+      const icon = item.querySelector("svg")?.parentElement;
+      if (icon) icon.replaceChildren(svg(like ? ICON.up : ICON.down));
+      const act = (e) => {
+        e.preventDefault(); e.stopImmediatePropagation();
+        if (e.type !== "click") return;
+        drop.close?.();
+        document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        if (!like) { target.tile.setAttribute("gemma-verdict", "block"); settleShelves(); }
+        toast(like ? "Rudder will keep videos like this" : "Rudder will show you less like this");
+        browser.runtime.sendMessage({ type: "rudder-feedback", id: target.id, like, title: target.title, channel: target.channel }).catch(() => {});
+      };
+      for (const type of ["click", "mousedown", "mouseup", "pointerdown", "pointerup", "tap"]) item.addEventListener(type, act, true);
+      list.insertBefore(item, list.firstElementChild);
+    }
+  }
+
+  async function check(recheck = false) {
     if (busy) { again = true; return; }
     busy = true;
     try {
+      addMenuItems();
       const lists = [TILES, SEARCH, CHANNEL, OTHER, SIDE].map((s) => [...document.querySelectorAll(s)]), ask = [];
       const watching = new URLSearchParams(location.search).get("v");
       for (const tile of lists.flat()) {
@@ -134,7 +195,7 @@
         const id = idOf(tile);
         if (!id) continue; // not filled in yet: stays hidden
         if (tile.getAttribute("gemma-id") !== id) { tile.setAttribute("gemma-id", id); tile.removeAttribute("gemma-verdict"); } // YouTube reuses tiles
-        if (tile.hasAttribute("gemma-verdict")) continue;
+        if (tile.hasAttribute("gemma-verdict") && !(recheck && id !== watching)) continue;
         if (id === watching) { tile.setAttribute("gemma-verdict", "ready"); continue; } // the video being watched: never filtered
         const img = tile.querySelector("img"), r = tile.getBoundingClientRect();
         ask.push({
@@ -148,9 +209,9 @@
       if (ask.length) {
         const verdicts = await browser.runtime.sendMessage({ type: "yt-tiles", tiles: ask.map(({ tile, ...t }) => t) });
         for (const { tile, id } of ask) {
-          const v = verdicts?.[id];
+          const v = verdicts?.[id], was = tile.getAttribute("gemma-verdict");
           if (v === "block") tile.setAttribute("gemma-verdict", "block");
-          if (v === "show") tile.setAttribute("gemma-verdict", "ready");
+          if (v === "show" && was !== "show") tile.setAttribute("gemma-verdict", "ready"); // a re-check never re-hides a shown tile
         }
       }
       lists.forEach(reveal);
@@ -165,9 +226,10 @@
 
   let timer = null;
   const soon = () => { clearTimeout(timer); timer = setTimeout(check, 50); };
-  new MutationObserver(() => { gateShort(); pauseIfHidden(); soon(); }).observe(document.documentElement, { childList: true, subtree: true });
+  new MutationObserver(() => { gateShort(); pauseIfHidden(); addMenuItems(); soon(); }).observe(document.documentElement, { childList: true, subtree: true });
   browser.runtime.onMessage.addListener((msg) => {
     if (msg?.type === "yt-ready") soon();
+    if (msg?.type === "yt-recheck") check(true); // you taught Rudder something: re-decide every tile on the page
     if (msg?.type === "yt-reset") { // the filters changed: every video is decided again (hidden until then)
       for (const el of document.querySelectorAll("[gemma-verdict]")) el.removeAttribute("gemma-verdict");
       host()?.removeAttribute("gemma-id");

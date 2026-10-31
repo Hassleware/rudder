@@ -1,4 +1,4 @@
-// Runs inside the YouTube page (put there by youtube/feed.js), so it
+// A page script: runs in the YouTube page itself (added by the content script youtube/feed.js), so it
 // can read the page's own data. YouTube's HTML sets window.ytInitialData (every video on the first screen) before the
 // app draws the grid; in-site navigation hands the app new data in the yt-navigate-finish event. Both are passed to
 // the content script with postMessage. Reads only; requests nothing.
