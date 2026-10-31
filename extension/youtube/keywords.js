@@ -21,7 +21,7 @@ const RELATED = {
   war: "war wars warfare invasion invade invades invaded missile missiles airstrike airstrikes troops military army soldiers bomb bombing bombs frontline conflict ukraine russia gaza israel hamas nato nuclear terror terrorist terrorists terrorism hostage hostages",
   violence: "violence violent attack attacks attacked shooting shootings stabbing stabbed assault assaulted fight fights brawl brutal beaten beating kill killed killing murder murdered gun guns weapon weapons blood bloody riot riots",
   violent: "@violence",
-  news: "news breaking headlines bbc cnn itv msnbc reuters sky_news fox_news abc_news nbc_news cbs_news the_guardian telegraph al_jazeera associated_press france_24 euronews channel_4 gb_news daily_mail newsnight 60_minutes",
+  news: "news breaking headlines bbc_news cnn itv_news msnbc reuters sky_news fox_news abc_news nbc_news cbs_news the_guardian telegraph al_jazeera associated_press france_24 euronews channel_4 gb_news daily_mail newsnight 60_minutes",
   depressing: "depressing depressed depression sad sadness tragic tragedy heartbreaking heartbroken devastating devastated grief grieving mourning died dies dead death killed cancer suicide lonely loneliness hopeless crisis disaster collapse layoffs laid_off fired recession",
   mood: "@depressing @angry @doom",
   sad: "@depressing",
@@ -50,7 +50,7 @@ const RELATED = {
   stock: "stock stocks stock_market shares nasdaq s&p dow_jones invest investing investment investor trading trader crypto bitcoin wall_street",
   future: "future futures next_decade",
   tech: "tech technology big_tech apple google microsoft meta amazon samsung nvidia intel amd tesla openai iphone android macbook silicon_valley",
-  hack: "hack hacks hacker hackers hacked hacking breach breached exploit exploits malware ransomware cyber cybersecurity security vulnerability",
+  hack: "hacker hackers hacked hacking breach breached exploit exploits malware ransomware cyber cybersecurity security vulnerability",
   cyber: "@hack", security: "@hack", secuirty: "@hack",
   offensive: "offensive offended offend controversial slur slurs racist racism sexist sexism insult insults",
   poor: "poor poverty homeless broke",
@@ -107,15 +107,17 @@ const RELATED = {
   suicide: "suicide suicidal",
   eating: "eating eat eats @disorder",
   disorder: "eating_disorder eating_disorders anorexia anorexic bulimia bulimic binge_eating",
-  addiction: "addiction addicted addict addicts addictive relapse relapsed sober sobriety rehab recovery withdrawal withdrawals detox cravings craving 12_step doomscrolling",
+  addiction: "addiction addicted addict addicts addictive relapse relapsed sober sobriety rehab addiction_recovery in_recovery recovery_journey withdrawal withdrawals detox cravings craving 12_step doomscrolling",
   relapse: "@addiction", withdrawal: "@addiction",
   cooking: "cooking cook cooks recipe recipes chef kitchen",
   baking: "baking bake baked baker bread cake cakes sourdough pastry",
 };
 
 const words = (s) => (s.toLowerCase().replace(/[’']s\b/g, "").match(/[a-z0-9&+.#-]+/g) ?? []).map((w) => w.replace(/^[.-]+|[.-]+$/g, "")).filter(Boolean);
-// light stemming: plurals and verb endings
+// light stemming: plurals and verb endings ("news" isn't a plural: stemmed it matched every "new")
+const NO_STEM = new Set(["news", "series", "species", "always", "less", "bias"]);
 export function stem(w) {
+  if (NO_STEM.has(w)) return w;
   if (w.length > 4 && w.endsWith("ies")) return w.slice(0, -3) + "y";
   if (w.length > 3 && w.endsWith("s") && !w.endsWith("ss")) w = w.slice(0, -1);
   if (w.length > 5 && w.endsWith("ing")) return w.slice(0, -3);

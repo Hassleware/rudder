@@ -10,6 +10,12 @@
 // youtube/feed.js keeps each home tile hidden until verdict() says it may be shown: after its title has been read,
 // the filter (setJudge) has passed it and its thumbnail has been read. Rejected tiles are removed from the grid.
 import { keywordMatch } from "./keywords.js";
+import { createLearner, packPrint, unpackPrint } from "./personal.js";
+// your own algorithm: learns from the 👍 / 👎 in each video's ⋮ menu (youtube/personal.js)
+export const learner = createLearner();
+learner.load();
+let printer = null; // background.js: a video's fingerprint, for videos clicked before they were fingerprinted
+export const setPrinter = (fn) => { printer = fn; };
 export const videos = new Map(); // id → { id, title, channel, thumbnail, order, shelf, short, seenAt, image, imageAt, ... }
 let order = 0;
 const now = () => Date.now();
@@ -126,11 +132,27 @@ browser.webRequest.onBeforeRequest.addListener((d) => {
 // Layer 1, judging ahead: every video is queued as soon as YouTube's data arrives, before its tile exists or is near
 // the screen; tiles' distance from the screen only sets the order. If the model is busy (a chat), the batch waits.
 let judge = null, working = false, memKey = null, saveTimer = null, filters = [], enabled = true;
-const queue = [], tabs = new Set(), memory = new Map(); // memory: id → { sentence: { blocked, verdict } }
+const queue = [], tabs = new Set(), memory = new Map(); // memory: id → { verdicts: { sentence: { blocked, verdict } }, print }
 const BATCH = 12;
 const missing = (v) => filters.filter((s) => !(s in (v.verdicts ?? {})));
-const blocked = (v) => filters.some((s) => v.verdicts?.[s]?.blocked);
+// Hidden? Strongest first: your own 👍/👎 on this video; keyword matches (always hidden); what you taught it (channels
+// you disliked, videos like ones you disliked); then the filters' models, unless what you taught it says you like it.
+const modelBlocked = (v) => filters.some((s) => v.verdicts?.[s]?.blocked);
+const keywordBlocked = (v) => filters.some((s) => v.verdicts?.[s]?.blocked && /^keyword/.test(v.verdicts[s].verdict));
+function blocked(v) {
+  const mine = learner.judge(v);
+  if (mine.explicit) return mine.verdict === "hide";
+  if (keywordBlocked(v) || mine.verdict === "hide") return true;
+  return modelBlocked(v) && mine.verdict !== "show";
+}
 const decided = (v) => blocked(v) || !missing(v).length; // one filter hiding it is enough
+// why a video is hidden, in words (popup)
+function why(v) {
+  const mine = learner.judge(v);
+  if (mine.verdict === "hide") return mine.why;
+  const s = filters.find((x) => v.verdicts?.[x]?.blocked && /^keyword/.test(v.verdicts[x].verdict)) ?? filters.find((x) => v.verdicts?.[x]?.blocked);
+  return s ? `${s.replace(/^anything (about )?/i, "")} (${v.verdicts[s].verdict})` : "";
+}
 // the keyword layer (youtube/keywords.js): no model, runs the moment a title is known
 function keywords(v) {
   for (const s of missing(v)) {
@@ -146,7 +168,7 @@ export async function setJudge(fn, signature) {
     const all = await browser.storage.local.get(null).catch(() => ({}));
     for (const [id, f] of Object.entries(all[memKey] ?? {})) memory.set(id, f);
     browser.storage.local.remove(Object.keys(all).filter((k) => k.startsWith("yt-verdicts:") && k !== memKey)).catch(() => {}); // older formats
-    for (const v of videos.values()) v.verdicts = { ...memory.get(v.id), ...v.verdicts };
+    for (const v of videos.values()) recall(v);
   }
   for (const v of videos.values()) enqueue(v);
   work();
@@ -162,12 +184,21 @@ export function setEnabled(on) {
 // this session's videos: how many were checked against every filter, how many are hidden, and by which filter
 export function stats() {
   const done = [...videos.values()].filter((v) => v.title && decided(v));
-  return { checked: done.length, hidden: done.filter(blocked).length, by: Object.fromEntries(filters.map((s) => [s, done.filter((v) => v.verdicts[s]?.blocked).length])) };
+  return { learning: learner.stats(), checked: done.length, waiting: queue.length + (working ? 1 : 0), hidden: done.filter(blocked).length, by: Object.fromEntries(filters.map((s) => [s, done.filter((v) => v.verdicts[s]?.blocked).length])) };
+}
+// the newest hidden videos and why (popup: "Recently hidden", each with 👍 to show it)
+export function recentHidden(n = 25) {
+  return [...videos.values()].filter((v) => v.title && v.verdicts && blocked(v)).sort((a, b) => (b.filteredAt ?? b.seenAt ?? 0) - (a.filteredAt ?? a.seenAt ?? 0)).slice(0, n).map((v) => ({ id: v.id, title: v.title, channel: v.channel ?? "", why: why(v) }));
+}
+function recall(v) {
+  const m = memory.get(v.id);
+  v.verdicts = { ...m?.verdicts, ...v.verdicts };
+  if (!v.print && m?.print) v.print = unpackPrint(m.print);
 }
 function remember(v) {
   const keep = Object.fromEntries(Object.entries(v.verdicts).filter(([, x]) => !x.error).map(([s, x]) => [s, { blocked: x.blocked, verdict: x.verdict }]));
   memory.delete(v.id);
-  memory.set(v.id, keep);
+  memory.set(v.id, { verdicts: keep, print: packPrint(v.print) });
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => { // keep the newest 5000 videos
     const all = [...memory].slice(-5000);
@@ -176,7 +207,7 @@ function remember(v) {
 }
 function enqueue(v) {
   if (!judge || !enabled || !v.title || v.queued) return;
-  v.verdicts = { ...memory.get(v.id), ...v.verdicts };
+  recall(v);
   keywords(v);
   if (decided(v)) return;
   if (!v.image && !v.noImage) return; // wait for the thumbnail: it's judged together with the title
@@ -198,6 +229,8 @@ async function work() {
   try {
     while (queue.length) {
       if (!judge || !enabled) break; // switched off meanwhile: the queue waits
+      // thumbnails arrive one by one; a short wait lets a few gather, since a batch costs far less per video than one
+      if (queue.length < BATCH) await new Promise((r) => setTimeout(r, 150));
       const batch = [];
       while (queue.length && batch.length < BATCH) batch.push(next());
       // videos missing the same filters are checked together
@@ -223,6 +256,7 @@ async function work() {
         vs.forEach((v, k) => {
           v.queued = false;
           Object.assign(v.verdicts, results[k].verdicts);
+          if (results[k].print) v.print = results[k].print;
           v.filteredAt = now();
           remember(v);
           enqueue(v); // filters added meanwhile
@@ -248,7 +282,9 @@ export function verdict({ id, imageLoaded, title, channel, dist, viewer }) {
   v.dist = dist;
   // no thumbnail download to read: the Shorts viewer (it plays the video itself), or the page drew the thumbnail from
   // its own memory (allowed 2 s after it appeared): judged on the title alone
-  if (!v.image && !v.noImage && (viewer || (imageLoaded && now() - (v.imageLoadedAt ??= now()) >= 2000))) v.noImage = true;
+  // …or its thumbnail never arrives (3 s on or near the screen without one)
+  if (!v.image && !v.noImage && dist <= 1) v.waitImageSince ??= now();
+  if (!v.image && !v.noImage && (viewer || (imageLoaded && now() - (v.imageLoadedAt ??= now()) >= 2000) || now() - (v.waitImageSince ?? now()) >= 3000)) v.noImage = true;
   enqueue(v); // runs the keyword check too
   if (blocked(v)) return "block";
   if (!decided(v)) return "wait";
@@ -262,5 +298,25 @@ browser.runtime.onMessage.addListener((msg, sender) => {
     if (sender.tab?.id >= 0) tabs.add(sender.tab.id);
     return Promise.resolve(Object.fromEntries(msg.tiles.map((t) => [t.id, verdict(t)])));
   }
-  if (msg?.type === "yt-shown") for (const id of msg.ids) { const v = videos.get(id); if (v) v.shownAt ??= msg.at; }
+  if (msg?.type === "yt-shown") for (const id of msg.ids) { const v = videos.get(id); if (v) { v.shownAt ??= msg.at; learner.shown(v); } }
+  if (msg?.type === "rudder-feedback") return feedback(msg);
 });
+
+// A 👍 / 👎 from a video's ⋮ menu (or the popup): learn it, then every open YouTube tab re-checks what it shows, so
+// videos like a disliked one go at once.
+export async function feedback({ id, like, title, channel }) {
+  let v = videos.get(id);
+  if (!v) videos.set(id, (v = { id, title, channel, order: ++order, source: "feedback", seenAt: now() }));
+  v.title ??= title; v.channel ??= channel;
+  await learner.feedback(v, like); // counts at once
+  recheckTabs();
+  if (!v.print && printer) { // a video never fingerprinted (e.g. hidden by a keyword first): fingerprint it, then learn from it
+    for (let k = 0; k < 40 && !v.print; k++) {
+      try { v.print = await printer(v); } catch (err) { if (!/busy/i.test(err.message)) break; await new Promise((r) => setTimeout(r, 500)); }
+    }
+    if (v.print && learner.has(v.id)) { await learner.feedback(v, like); recheckTabs(); } // unless it was forgotten meanwhile
+  }
+  return { ok: true, learned: !!v.print, stats: learner.stats() };
+}
+export function forget() { learner.forget(); recheckTabs(); }
+const recheckTabs = () => { for (const t of tabs) browser.tabs.sendMessage(t, { type: "yt-recheck" }).catch(() => {}); };
