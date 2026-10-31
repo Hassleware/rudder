@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "postinstall": "node -e \"const fs=require('fs');fs.mkdirSync('extension/vendor',{recursive:true});fs.copyFileSync('node_modules/@mlc-ai/web-llm/lib/index.js','extension/vendor/web-llm.js');for(const f of ['ort.webgpu.bundle.min.mjs','ort-wasm-simd-threaded.asyncify.wasm'])fs.copyFileSync('node_modules/ort130/dist/'+f,'extension/vendor/'+f);fs.copyFileSync('node_modules/@huggingface/transformers/dist/transformers.min.js','extension/vendor/transformers.min.js');fs.copyFileSync('node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.wasm','extension/vendor/ort-tjs.wasm')\"",
+    "postinstall": "node scripts/vendor.mjs",
     "start": "web-ext run",
     "lint": "web-ext lint --ignore-files \"vendor/**\"",
     "build": "web-ext build --overwrite-dest"
@@ -12,8 +12,8 @@
     "web-ext": "10.8.0"
   },
   "dependencies": {
-    "@mlc-ai/web-llm": "0.2.86",
     "@huggingface/transformers": "4.3.1",
-    "ort130": "npm:onnxruntime-web@1.30.0"
+    "@tesseract.js-data/eng": "^1.0.0",
+    "tesseract.js": "^7.0.0"
   }
 }
