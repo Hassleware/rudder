@@ -167,6 +167,19 @@ Rudder learns what the user wants from two items it adds to every feed video's �
   - CPU per video: DeBERTa base 0.45–0.5 s for all 29 filters (xsmall 0.19 s); on the GPU both should be several times faster (not yet measured).
 - Keyword fixes from the test set: "news" was stemmed to "new" (matched every "New …"), bare "hack(s)" caught life hacks, "recovery" caught yoga, "BBC"/"ITV" caught nature documentaries. Keywords on titles: 73% caught, 6% of harmless wrongly hidden (test).
 
+## Rudder without an LLM (2026-10-31)
+
+The hunts showed keywords did ~90% of the hiding (175/200, 187/216, 191/209) and Gemma's own yes/no calls were right
+about half the time, for a ~45 s load and 2.8 GB of graphics memory. Rudder now runs on the processor only:
+1. keywords on title + channel (instant);
+2. the same keywords on the thumbnail's text, read by Tesseract (`extension/ocr.js`, two workers, words with confidence
+   ≥ 60, matches of 4+ letters only: Tesseract turns noise into short words like "ill");
+3. your 👍/👎 learner, now on MiniLM fingerprints of "title — channel" (`extension/text.js`, ~5 ms); clicks saved
+   with Gemma fingerprints are re-read from their titles (`learner.reprint`).
+First video shown ~2.5 s after opening YouTube (was ~45 s cold). Gemma files (WebLLM, probe, vision, gpu-fixes, bench,
+calib, snapshot, import) were removed from the extension; `index.html` and the research scripts still have the Gemma
+work. Your own filter sentences now work through their words and `youtube/keywords.js`'s related words only.
+
 ## Filter hunt on live YouTube (2026-10-31)
 
 Seven runs over the home feed, three watch-page sidebars, four searches and the Shorts viewer (~500 videos each),
