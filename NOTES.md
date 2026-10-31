@@ -99,6 +99,8 @@ Commands:
 ## YouTube home feed reader (`extension/youtube/`, not linked to the filter yet)
 
 Sees every video's title and thumbnail **before the page shows it**, with no requests of its own, no scrolling and no screenshots; only the browser's own traffic and the page's own data.
+
+**Filling the feed (2026-10-31):** removed videos would leave a short feed, so `fill()` in `feed.js` briefly pins YouTube's own "load more" spot on screen (invisible) and YouTube's page fetches its next page, the same request a scroll sends. Only on the home grid and the watch sidebar, only after Rudder hid something, until the spot is 2 screens below the window, at most 4 pages per visit. Rudder itself still fetches nothing.
 - `page.js` is a page script, added to the page by the content script `feed.js`, and reads the page's own `ytInitialData` the moment YouTube sets it (and `yt-navigate-finish` data). The home HTML comes through YouTube's service worker, so it isn't read off the network.
 - `intercept.js` (background) turns that data into videos (id, title, channel, thumbnail address; Mixes by their first video, Shorts from `thumbnailViewModel.thumbnailViewModel.image.sources`), reads the bytes of every thumbnail the page downloads from `i.ytimg.com` and the page's own `youtubei/v1/browse` responses (Firefox `webRequest.filterResponseData`, bytes passed on unchanged). `verdict()` is where the filter will plug in; for now it waits until title and thumbnail are both read.
 - `hide.css` + `feed.js` keep every home tile invisible (it keeps its size, so layout and lazy loading are normal) until its verdict is "show".
