@@ -9,6 +9,12 @@ const hitWith = (list, title, channel) => { for (const f of list) { const m = ke
 const hit = (title, channel) => { for (const f of FILTERS) { const m = keywordMatch(f, title, channel); if (m) return `${f} ← ${m}`; } return null; };
 
 const MUST_HIDE = [
+  // live hunt, 2026-10-31: got through before the fixes
+  ["#deadlock", "Adrian"], ["#vanillamace #funny #twitch #trending", ""], ["KNIGHT OF THE WIND", "Crush 40 - Topic"], ["GLACEIR", "Toby Fox"],
+  ["The C compiler doesn't give a sh*t", "absolute_bajoding"], ["Jane Street Internship 2025: Projects, Mentorship, and Learning", "Jane Street"],
+  ["Zelensky Yine Şovunu Yaptı! Parlar Pastanesi", "Yemeden Gezme"], ["Emma interviews Roxanne Pallett | Celebrity Big Brother", "Big Brother UK"],
+  ["Venator With -97.5% Healing Reduction is NORMAL", "2Retry"], ["HALLOWEEN SPECIAL! RE9 LATER", "Suppress"], ["Hector Analysed like Chess | Breaking Bad", ""],
+  ["STUDENT CRIES IN CLASS", ""], ["o Gragas tá pronto para o comeback do ano", ""], ["North Korean defectors shown dragged back across the border", "South China Morning Post"],
   ["Star Trek and X-Men actor Sir Patrick Stewart dies aged 86", "ITV News"],
   ["Sir Patrick Stewart has died", "BBC News"],
   ["Tributes paid to legendary actor", "Sky News"],
@@ -78,6 +84,10 @@ const MUST_HIDE = [
   ["What bulimia did to my body", "Story"],
 ];
 const SHOULD_SHOW = [
+  // live hunt, 2026-10-31: hidden before the fixes
+  ["Expectations vs reality ✨ Happy Star Wars Day!", ""], ["Top 5 Breaking Character Moments on SNL", ""], ["Just add ground beef to the potatoes! Simple dinner recipe!", "Essen Recipes"],
+  ["Polishing Burnt Wood Like Glass", "Blacktail Studio"], ["🐶👻 How To Draw A Puppy In A Ghost Costume 👻🐶", "Art for Kids Hub"], ["Best Talking Animals of 2025 Ranked! 📈🔥", ""],
+  ["Get Ready to Cry Laughing with these Hilarious DONKEYS", "Funny Pet's Life"], ["I Cut Up Our Dining Table", "Keith Johnson Woodwork"],
   ["How to bake sourdough bread at home", "Joshua Weissman"],
   ["Cute cats compilation 2026", "The Pet Collective"],
   ["Learn 5 easy guitar chords", "Andy Guitar"],
