@@ -1,29 +1,31 @@
 // Rudder's own algorithm: it learns what YOU want from the 👍 / 👎 in each video's ⋮ menu, continuously, on your
 // device. Nothing leaves the browser.
-//   - Every judged video gets a fingerprint: Gemma's layer-7 readings of its title and of its thumbnail, averaged and
-//     shrunk to 256 numbers each (a fixed random projection keeps similarities).
+//   - Every judged video gets a fingerprint: MiniLM's reading of its title and channel (text.js, 384 numbers), shrunk
+//     to 256 (a fixed random projection keeps similarities). Fingerprints from before (Gemma's readings) are dropped and
+//     your clicks re-read from their titles (reprint).
 //   - Examples: your clicks (weight 1), plus videos you were shown and didn't 👎 (weight 0.2: "seen, apparently fine").
 //   - A small logistic-regression model on the fingerprints is retrained after every click (milliseconds).
 //   - Channels: 2+ 👎 and no 👍 → the channel is hidden; any 👍 and no 👎 → the channel is protected from model-only hides.
-const DIM = 256, IN = 1536;
-const STORE = "rudder-learning-v1";
+const DIM = 256;
+const STORE = "rudder-learning-v2", OLD_STORE = "rudder-learning-v1"; // v1 held Gemma fingerprints
 
-// fixed random projection 1536 → 256 (seeded, so every session and stored fingerprint agree)
-let P = null;
-function projection() {
-  if (P) return P;
+// fixed random projection IN → 256 (seeded, so every session and stored fingerprint agree)
+const P = new Map();
+function projection(IN) {
+  if (P.has(IN)) return P.get(IN);
   let s = 0x9e3779b9;
   const rnd = () => { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; return ((s >>> 0) + 0.5) / 4294967296; };
-  P = new Float32Array(IN * DIM);
-  for (let i = 0; i < P.length; i += 2) { const r = Math.sqrt(-2 * Math.log(rnd())), a = 2 * Math.PI * rnd(); P[i] = r * Math.cos(a); P[i + 1] = r * Math.sin(a); }
-  return P;
+  const m = new Float32Array(IN * DIM);
+  for (let i = 0; i < m.length; i += 2) { const r = Math.sqrt(-2 * Math.log(rnd())), a = 2 * Math.PI * rnd(); m[i] = r * Math.cos(a); m[i + 1] = r * Math.sin(a); }
+  P.set(IN, m);
+  return m;
 }
-// layer-7 rows (Float32Array[1536] each) → a unit-length 256-number fingerprint, stored as Int8 (×127)
+// rows of numbers (e.g. one MiniLM reading) → a unit-length 256-number fingerprint, stored as Int8 (×127)
 export function fingerprint(rows) {
   if (!rows?.length) return null;
-  const mean = new Float32Array(IN);
+  const IN = rows[0].length, mean = new Float32Array(IN);
   for (const r of rows) for (let k = 0; k < IN; k++) mean[k] += r[k] / rows.length;
-  const p = projection(), out = new Float32Array(DIM);
+  const p = projection(IN), out = new Float32Array(DIM);
   for (let k = 0; k < IN; k++) { const m = mean[k]; if (m) for (let j = 0; j < DIM; j++) out[j] += m * p[k * DIM + j]; }
   const n = Math.hypot(...out) || 1;
   return Int8Array.from(out, (x) => Math.round((127 * x) / n));
@@ -41,7 +43,9 @@ export function createLearner(storage = globalThis.browser?.storage?.local) {
   let model = null, loaded = null, saveTimer = null;
   const save = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => storage?.set({ [STORE]: { examples: st.examples.map((x) => ({ ...x, e: packPrint(x.e) })), shown: st.shown.map((x) => ({ ...x, e: packPrint(x.e) })) } }).catch(() => {}), 500); };
   const load = () => (loaded ??= (async () => {
-    const s = (await storage?.get(STORE).catch(() => ({})))?.[STORE];
+    const got = (await storage?.get([STORE, OLD_STORE]).catch(() => ({}))) ?? {};
+    // from v1: keep your clicks (without their old fingerprints; reprint reads them again), drop the "shown" records
+    const s = got[STORE] ?? (got[OLD_STORE] && { examples: got[OLD_STORE].examples.map((x) => ({ ...x, e: null })), shown: [] });
     // merged with anything recorded while loading (the first screen's videos are shown before this finishes)
     if (s) {
       const ids = new Set(st.examples.map((x) => x.id));
@@ -106,6 +110,13 @@ export function createLearner(storage = globalThis.browser?.storage?.local) {
       save();
     },
     forget() { st.examples = []; st.shown = []; model = null; save(); },
+    // clicks without a fingerprint (from before, or made before it was read): read them now, from their titles
+    async reprint(print) {
+      await load();
+      let n = 0;
+      for (const x of st.examples) if (!x.e && x.title) { try { const e = await print(x); x.e = e?.t ? e : null; n++; } catch {} }
+      if (n) { train(); save(); }
+    },
     has: (id) => st.examples.some((x) => x.id === id),
     // what your feedback says about this video: { verdict: "hide" | "show" | null, why }
     judge(v) {

@@ -3,7 +3,7 @@
 // and leave the second alone; channels with 2 👎 get hidden; an explicit 👍 always shows.
 // Run: node research/personal-check.mjs
 const mem = {};
-const storage = { get: async (k) => ({ [k]: mem[k] }), set: async (o) => Object.assign(mem, o) };
+const storage = { get: async (k) => Object.fromEntries([k].flat().map((x) => [x, mem[x]])), set: async (o) => Object.assign(mem, o) };
 const { createLearner, fingerprint } = await import("../extension/youtube/personal.js");
 let s = 1;
 const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647) - 0.5;
