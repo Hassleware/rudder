@@ -48,9 +48,8 @@ async function encoder() {
   return session;
 }
 
-// thumbnail bytes (jpeg / webp) → f16 rows [n × 1536] as a Uint16Array (raw half floats), n = 66 for 16:9
-export async function encodeThumbnail(bytes) {
-  const s = await encoder();
+// thumbnail bytes → the encoder's input: 16×16 patches (HWC, /255) and their [col, row] positions, padded to 630
+async function patchesOf(bytes) {
   const bmp = await createImageBitmap(new Blob([bytes]));
   const f = Math.sqrt((MAXP * PS * PS) / (bmp.height * bmp.width));
   const H = Math.floor((f * bmp.height) / 48) * 48, W = Math.floor((f * bmp.width) / 48) * 48;
@@ -68,10 +67,35 @@ export async function encodeThumbnail(bytes) {
     }
     pos[q++] = BigInt(pw); pos[q++] = BigInt(ph);
   }
-  const out = await s.run({ pixel_values: new ort.Tensor("float32", patches, [1, MAXP, DIM]), pixel_position_ids: new ort.Tensor("int64", pos, [1, MAXP, 2]) });
-  const n = Math.floor((nh * nw) / 9), feats = out.image_features, data = feats.data;
-  // f32 → convert; f16 (Uint16Array or Float16Array) → copy the raw halves
-  const rows = data instanceof Float32Array ? new Uint16Array(Float16Array.from(data.subarray(0, n * 1536)).buffer) : new Uint16Array(data.buffer, data.byteOffset, n * 1536).slice();
-  for (const t of Object.values(out)) t.dispose?.();
-  return { n, rows };
+  return { patches, pos, n: Math.floor((nh * nw) / 9) };
+}
+const halves = (data, from, count) => (data instanceof Float32Array
+  ? new Uint16Array(Float16Array.from(data.subarray(from, from + count)).buffer)
+  : new Uint16Array(data.buffer, data.byteOffset + from * 2, count).slice());
+// Several thumbnails → each one's f16 rows [n × 1536] (Uint16Array of raw halves), n = 66 for 16:9. One encoder call
+// for the whole batch when the encoder takes a batch, else one call each.
+let batches = null; // does the encoder take more than one image per call?
+const BATCH = 8;
+export const encoderBatches = () => batches;
+export async function encodeThumbnails(list) {
+  const s = await encoder(), inputs = await Promise.all(list.map(patchesOf));
+  const run = async (group) => {
+    const B = group.length, pv = new Float32Array(B * MAXP * DIM), pp = new BigInt64Array(B * MAXP * 2);
+    group.forEach((x, b) => { pv.set(x.patches, b * MAXP * DIM); pp.set(x.pos, b * MAXP * 2); });
+    const out = await s.run({ pixel_values: new ort.Tensor("float32", pv, [B, MAXP, DIM]), pixel_position_ids: new ort.Tensor("int64", pp, [B, MAXP, 2]) });
+    const data = out.image_features.data, rows = data.length / 1536, T = rows / B, total = group.reduce((a, x) => a + x.n, 0);
+    for (const t of Object.values(out)) t.dispose?.();
+    if (Number.isInteger(T) && group.every((x) => x.n <= T)) return group.map((x, b) => ({ n: x.n, rows: halves(data, b * T * 1536, x.n * 1536) })); // [B × T] with padding
+    if (rows === total) { let at = 0; return group.map((x) => { const r = { n: x.n, rows: halves(data, at * 1536, x.n * 1536) }; at += x.n; return r; }); } // padding dropped
+    throw new Error(`unexpected encoder output: ${rows} rows for ${B} images`);
+  };
+  const out = [];
+  for (let i = 0; i < inputs.length; i += BATCH) {
+    const group = inputs.slice(i, i + BATCH);
+    if (batches !== false && group.length > 1) {
+      try { out.push(...(await run(group))); batches = true; continue; } catch (err) { if (batches === null) batches = false; console.warn("rudder: encoder batch failed, one at a time:", err.message); }
+    }
+    for (const x of group) out.push((await run([x]))[0]);
+  }
+  return out;
 }

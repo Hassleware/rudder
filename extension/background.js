@@ -2,9 +2,9 @@
 // The model downloads once (~2.9 GB) into the extension's own storage; after that it loads from disk.
 import "./gpu-fixes.js";
 import { CreateMLCEngine, hasModelInCache } from "./vendor/web-llm.js";
-import { encodeThumbnail, IMAGE_TOKENS } from "./vision.js";
-import { keywordMatch } from "./youtube/keywords.js";
-import { videos as youtubeVideos, setJudge as setYoutubeJudge, setFilters as setYoutubeFilters, setEnabled as setYoutubeEnabled, stats as youtubeStats } from "./youtube/intercept.js";
+import { encodeThumbnails, encoderBatches, IMAGE_TOKENS } from "./vision.js";
+import { videos as youtubeVideos, setJudge as setYoutubeJudge, setFilters as setYoutubeFilters, setEnabled as setYoutubeEnabled, stats as youtubeStats, setPrinter as setYoutubePrinter, recentHidden, feedback as youtubeFeedback, forget as youtubeForget } from "./youtube/intercept.js";
+import { fingerprint } from "./youtube/personal.js";
 import { TAP, PROBE, mean, makeProbe, score, smooth, top3, sentences, cascade, CASCADE, CASCADE_TITLES, CASCADE_STRICT } from "./probe.js";
 
 const MODEL_ID = "gemma-4-E2B-it-q4f16_1-MLC";
@@ -30,9 +30,9 @@ function touch() {
 async function unload() {
   if (partial !== null || ports.size) return touch(); // never while chatting or while the popup is open
   const e = engine;
-  engine = null; loading = null;
+  engine = null; loading = null; wide = !firefox; // the fast reader is rebuilt with the next load
   await e?.unload();
-  setStatus("Unloaded to free GPU memory. It reloads when you send a message.");
+  setStatus("Resting: GPU memory freed. It loads again when YouTube needs it.");
 }
 
 // Mirror of the model's memory (KV cache): every token id it holds, in order. Every token reaches the cache through
@@ -365,6 +365,8 @@ browser.runtime.onConnect.addListener(async (port) => {
     }
     if (msg.type === "filters") port.postMessage(ytState());
     if (msg.type === "set-filters") setYoutubeSettings(msg);
+    if (msg.type === "rudder-like") youtubeFeedback({ id: msg.id, like: true }).then(() => port.postMessage(ytState())).catch(() => {});
+    if (msg.type === "rudder-forget") { youtubeForget(); port.postMessage(ytState()); }
     if (msg.type === "clear" && partial === null) {
       history = [];
       engine?.resetChat();
@@ -373,11 +375,9 @@ browser.runtime.onConnect.addListener(async (port) => {
   });
   // Load as soon as the popup opens, but only if the model is already on disk: never start a
   // 2.9 GB download without the user asking (the popup shows Download / Import buttons instead).
-  if (!engine && !loading) {
-    installed = await hasModelInCache(MODEL_ID).catch(() => false);
-    if (installed) load().catch(() => {});
-    else setStatus("Model not installed yet.");
-  }
+  // the popup only shows the status: the model loads when YouTube needs it (never a 2.9 GB download unasked)
+  if (!engine && !loading && installed === null) installed = await hasModelInCache(MODEL_ID).catch(() => false);
+  if (!engine && !loading && installed === false) setStatus("Model not installed yet.");
   port.postMessage(snapshot());
   port.postMessage(ytState());
 });
@@ -497,13 +497,22 @@ async function withFilterModel(fn) {
     return await fn(p, filterMemory(p));
   } finally {
     probing = false;
+    touch(); // filtering counts as use: the model stays loaded while YouTube is being browsed
   }
 }
-// each text's probe-layer states (after the chat-reply prefix, like layerStates), many texts per pass
-async function batchStates(texts) {
+// Each item's probe-layer readings (after the chat-reply prefix, like layerStates): { text, image }. An item's
+// thumbnail (image tokens, vision.js) sits between the prefix and the text; image = its tokens' readings. Many items
+// per pass.
+async function batchStates(items) {
   return withFilterModel(async (p, kv) => {
     const [pre] = (await bench()).templates.content.reply.split("{text}"), tok = p.tokenizer, head = [p.bosTokenId, ...tok.encode(pre)];
-    const seqs = texts.map((t) => ({ ids: [...head, ...tok.encode(t)] })), out = [];
+    const seqs = items.map((it) => {
+      const { text, image } = typeof it === "string" ? { text: it } : it;
+      const t = Array.from(tok.encode(text)), sq = withImage(head, image, image ? [...tok.encode("\n"), ...t] : t);
+      return { ...sq, textFrom: sq.ids.length - t.length };
+    });
+    const out = [];
+    const row = (rec, t) => Float32Array.from(rec.values.subarray(t * 1536, (t + 1) * 1536));
     for (const group of packPasses(seqs.map((x) => x.ids))) {
       const g = group.map((k) => seqs[k]), job = await prepare(p, g);
       let recs = [];
@@ -518,69 +527,15 @@ async function batchStates(texts) {
       if (recs.length !== 1) throw new Error(`Expected layer ${PROBE.layer + 1}'s output once, got ${recs.length}.`);
       let at = 0;
       for (const k of group) {
-        out[k] = [];
-        for (let t = at + head.length; t < at + seqs[k].ids.length; t++) out[k].push(Float32Array.from(recs[0].values.subarray(t * 1536, (t + 1) * 1536)));
-        at += seqs[k].ids.length;
+        const sq = seqs[k], text = [], image = sq.img ? [] : null;
+        for (let t = at + sq.textFrom; t < at + sq.ids.length; t++) text.push(row(recs[0], t));
+        if (image) for (let t = at + sq.img.at; t < at + sq.img.at + sq.img.rows.length / 1536; t++) image.push(row(recs[0], t));
+        out[k] = typeof items[k] === "string" ? text : { text, image };
+        at += sq.ids.length;
       }
     }
     return out;
   });
-}
-// Write each prompt's continuation (greedy, up to max tokens), up to 16 prompts at once: their prompts go into the
-// filter's memory (one or more passes), then every step queues the next token of every unfinished prompt and waits once.
-async function batchGenerate(p, kv, prompts, max) {
-  const tok = p.tokenizer, out = prompts.map(() => []), V = 262144;
-  for (let b = 0, n; b < prompts.length; b += n) {
-    // as many as fit: 16 slots and 2048 tokens of memory (prompt + what it writes)
-    let used = 0;
-    for (n = 0; b + n < prompts.length && n < FILTER_SEQS && used + prompts[b + n].ids.length + max + 1 <= 2048; n++) used += prompts[b + n].ids.length + max + 1;
-    n = Math.max(n, 1);
-    const batch = prompts.slice(b, b + n);
-    for (let k = b; k < b + batch.length; k++) out[k] = [];
-    let slot = 0;
-    for (const group of packPasses(batch.map((x) => x.ids.slice(0, -1)))) {
-      const job = await prepare(p, group.map((k) => ({ ...batch[k], ids: batch[k].ids.slice(0, -1) })), slot);
-      job.run(kv);
-      slot += group.length;
-    }
-    const next = batch.map((x) => x.ids.at(-1));
-    let live = batch.map((_, k) => k);
-    for (let step = 0; step <= max && live.length; step++) {
-      const scores = await stepAll(p, kv, live, live.map((k) => next[k]));
-      const stillLive = [];
-      live.forEach((k, r) => {
-        let best = 0;
-        const a = scores[r];
-        for (let i = 1; i < V; i++) if (a[i] > a[best]) best = i;
-        if (best === 106 || best === 1 || step === max) return; // <turn|>, <eos> or long enough
-        out[b + k].push(best);
-        next[k] = best;
-        stillLive.push(k);
-      });
-      live = stillLive;
-    }
-  }
-  return out.map((ids) => tok.decode(Int32Array.from(ids)).replace(/\*\*/g, "").replace(/\s+/g, " ").trim());
-}
-// one token for each of the given slots → each slot's scores: one call per slot, all queued, then one wait. (One call
-// for all slots through the prompt reader was tried: the runtime aborts with exit(1).)
-async function stepAll(p, kv, slots, tokens) {
-  const cpu = [];
-  slots.forEach((slot, r) => {
-    p.tvm.beginScope();
-    try {
-      const input = p.tvm.empty([1, 1], "int32", p.device).copyFrom([tokens[r]]);
-      p.fKVCacheBeginForward(kv, p.tvm.makeShapeTuple([slot]), p.tvm.makeShapeTuple([1]));
-      try {
-        const logits = p.decoding(input, kv, p.params).get(0);
-        cpu.push(p.tvm.detachFromCurrentScope(p.tvm.empty(logits.shape, logits.dtype, p.tvm.cpu()).copyFrom(logits)));
-      } finally { p.fKVCacheEndForward(kv); }
-    } finally {
-      p.tvm.endScope();
-    }
-  });
-  await p.device.sync();
-  return cpu.map((arr) => { const a = arr.toArray(); arr.dispose(); return a; });
 }
 // the judge for many (filter, text) pairs: Yes/No scores, same prompt as judge(), batched
 async function batchJudge(pairs) {
@@ -615,36 +570,56 @@ async function batchJudge(pairs) {
     return out;
   });
 }
-// Each video's thumbnail, read by Gemma: its vision encoder (GPU, vision.js) turns it into 66 image tokens, and Gemma
-// writes out the text on it and what it shows ("finished my phd and my husband died lol"). That description joins the
-// title for the keyword check, the probe and the judge. (Asking the judge with the image itself in the prompt was
-// tested first: it read the image but still said No to "death" for that thumbnail; the written-out text is reliable.)
-const described = new Map(); // id → description
-let visionError = null;
-const DESCRIBE = 'Copy every word written in this image exactly. Then write "Shows:" and what it shows in at most four words. No other comments.';
-// Gemma's answer without its framing ("Here is the text…", bullets, "Shows:")
-const cleanDescription = (s) => s.replace(/^(here is |here's )?(all )?(the )?text (written )?(in|on) (the|this) image( says)?:?/i, "").replace(/(one short sentence|image description|what the image shows)[^:]*:/gi, " ").replace(/\bshows:/i, " — shows:").replace(/^\s*[*•-]\s*/gm, "").replace(/\s*\*\s*/g, " · ").replace(/\s+/g, " ").replace(/^[\s·—-]+/, "").trim();
-async function describe(videos) {
-  if (visionError) return videos.map((v) => described.get(v.id) ?? null);
-  const todo = videos.filter((v) => v.image && !described.has(v.id));
+// Thumbnails, as image tokens only (Gemma never writes anything): the encoder turns each into 66 image tokens
+// (vision.js, GPU, a batch per call), they're read in the same pass as the title, and every filter's probe scores
+// them: the average of the 3 highest-scoring image tokens, standardised per filter against 40 ordinary thumbnails
+// shipped in calib/ (images sit at their own per-filter baseline). Above IMAGE_TAU: hidden.
+// IMAGE_TAU 4.5, measured with the 29 default filters (calibrated on 20, tested on 20 unseen ordinary thumbnails,
+// 2026-10-31): ordinary hidden 3/20 (2.5: 11/20, 3.5: 6/20); strong signals caught (a thumbnail saying "my husband
+// died" scored 13.5 under "news, war or death"; gambling 7–34); subtle photos often not (8/24 research topics).
+const IMAGE_TAU = 4.5;
+const thumbs = new Map(); // id → { n, rows }
+let visionError = null, calibReadings = null;
+async function thumbnailsOf(videos) {
+  if (visionError) return videos.map(() => null);
+  const todo = videos.filter((v) => v.image && !thumbs.has(v.id));
   if (todo.length) {
     try {
-      await withFilterModel(async (p, kv) => {
-        const tok = p.tokenizer, enc = (x) => Array.from(tok.encode(x)), images = [];
-        for (const v of todo) images.push(await encodeThumbnail(v.image));
-        const prompts = images.map((image) => withImage([p.bosTokenId, ...enc("<|turn>user\n")], image, enc(`\n${DESCRIBE}<turn|>\n<|turn>model\n`)));
-        const said = await batchGenerate(p, kv, prompts, 24);
-        todo.forEach((v, i) => described.set(v.id, /copy every word|no other comments/i.test(said[i]) ? "" : cleanDescription(said[i]))); // an echo of the instructions isn't a description
-        while (described.size > 2000) described.delete(described.keys().next().value);
-      });
+      const enc = await withFilterModel(() => encodeThumbnails(todo.map((v) => v.image))); // one GPU job at a time
+      todo.forEach((v, i) => thumbs.set(v.id, enc[i]));
+      while (thumbs.size > 400) thumbs.delete(thumbs.keys().next().value);
     } catch (err) {
       if (/busy/i.test(err.message)) throw err;
       visionError = err.message; // ponytail: titles only from then on (this session); the popup could show it
       console.warn("rudder: thumbnails can't be read, titles only:", err);
     }
   }
-  return videos.map((v) => described.get(v.id) ?? null);
+  return videos.map((v) => thumbs.get(v.id) ?? null);
 }
+const top3Avg = (zs) => { const s = [...zs].sort((a, b) => b - a); return (s[0] + (s[1] ?? s[0]) + (s[2] ?? s[1] ?? s[0])) / 3; };
+const imageRaw = (fl, rows) => top3Avg(rows.map((x) => score(fl.probe, x)));
+// each filter's calibration is saved (per sentence and threshold version), so only new filters need the 40 thumbnails
+const CAL_KEY = "rudder-imagecal-v1";
+let savedCal = null;
+async function imageCalibration(fl) {
+  savedCal ??= (await browser.storage.local.get(CAL_KEY).catch(() => ({})))[CAL_KEY] ?? {};
+  if (!fl.imageCal && savedCal[fl.sentence]) fl.imageCal = savedCal[fl.sentence];
+  if (fl.imageCal) return fl.imageCal;
+  if (!calibReadings) {
+    const keys = await (await fetch("calib/index.json")).json();
+    const bytes = await Promise.all(keys.map(async (k) => new Uint8Array(await (await fetch(`calib/${k}.jpg`)).arrayBuffer())));
+    const images = await withFilterModel(() => encodeThumbnails(bytes));
+    calibReadings = (await batchStates(images.map((image) => ({ text: "", image })))).map((r) => r.image);
+  }
+  if (!fl.imageCal) {
+    const v = calibReadings.map((rows) => imageRaw(fl, rows)), mu = v.reduce((a, b) => a + b, 0) / v.length;
+    fl.imageCal = { mu, sd: Math.sqrt(v.reduce((a, b) => a + (b - mu) ** 2, 0) / v.length) || 1 };
+    savedCal[fl.sentence] = fl.imageCal;
+    browser.storage.local.set({ [CAL_KEY]: savedCal }).catch(() => {});
+  }
+  return fl.imageCal;
+}
+const imageScore = (fl, rows) => (imageRaw(fl, rows) - fl.imageCal.mu) / fl.imageCal.sd;
 
 // A batch of YouTube videos through the filters: title with the channel attached ("… — channel: IGN"; thumbnails need
 // the vision path, still research). Probe per filter on the title's words: below the filter's gate → clear; top-3
@@ -661,8 +636,9 @@ const nameOnly = (s) => !/\s/.test(s.trim()) && !/^anything$/i.test(s.trim());
 const GROUP = 12; // filters per judge question: short questions stay well inside the reader's 512 tokens and are easier to answer
 async function judgeYoutube(videos, fls0, rule0 = CASCADE_STRICT) {
   const names = fls0.filter((fl) => nameOnly(fl.sentence)), fls = fls0.filter((fl) => !nameOnly(fl.sentence));
-  const seen = await describe(videos); // the thumbnail, written out by Gemma
-  const texts = videos.map((v, i) => `${v.title}${v.channel ? ` — channel: ${v.channel}` : ""}${seen[i] ? ` — thumbnail: ${seen[i]}` : ""}`);
+  const texts = videos.map((v) => (v.channel ? `${v.title} — channel: ${v.channel}` : v.title));
+  const images = await thumbnailsOf(videos);
+  if (images.some(Boolean)) for (const fl of fls) await imageCalibration(fl);
   const [pre] = (await bench()).templates.content.reply.split("{text}");
   const batched = async (fast, slow) => {
     if (youtubeBatch === true) {
@@ -670,22 +646,24 @@ async function judgeYoutube(videos, fls0, rule0 = CASCADE_STRICT) {
     }
     return slow();
   };
-  const states = await batched(() => batchStates(texts), async () => { const r = []; for (const t of texts) r.push((await layerStates([pre, t, ""], PROBE.layer)).pieces[1]); return r; });
+  const states = await batched(() => batchStates(texts.map((text, i) => ({ text, image: images[i] }))), async () => { const r = []; for (const t of texts) r.push({ text: (await layerStates([pre, t, ""], PROBE.layer)).pieces[1], image: null }); return r; });
   const rows = videos.map((_, i) => {
     const verdicts = {}, unsure = [];
-    for (const fl of fls0) { // the keyword check on what the thumbnail says
-      const m = seen[i] && keywordMatch(fl.sentence, seen[i]);
-      if (m) verdicts[fl.sentence] = { blocked: true, verdict: "thumbnail keyword: " + m };
+    let thumb = null;
+    if (states[i].image) for (const fl of fls) { // the thumbnail's image tokens
+      const z = imageScore(fl, states[i].image);
+      if (!thumb || z > thumb.z) thumb = { z, filter: fl.sentence };
+      if (z > IMAGE_TAU) verdicts[fl.sentence] = { blocked: true, verdict: `thumbnail ${z.toFixed(1)}`, image: z };
     }
-    if (Object.values(verdicts).some((x) => x.blocked)) return { verdicts, unsure }; // already hidden: no more checks needed
+    if (Object.values(verdicts).some((x) => x.blocked)) return { verdicts, unsure, thumb }; // already hidden: no title checks needed
     for (const fl of fls) {
-      const z = smooth(states[i].map((x) => score(fl.probe, x))), peak = Math.max(...z), best3 = Math.max(...top3(z)), rule = { ...rule0, gate: Math.min(rule0.gate, fl.gate ?? rule0.gate) };
+      const z = smooth(states[i].text.map((x) => score(fl.probe, x))), peak = Math.max(...z), best3 = Math.max(...top3(z)), rule = { ...rule0, gate: Math.min(rule0.gate, fl.gate ?? rule0.gate) };
       if (peak <= rule.gate) verdicts[fl.sentence] = { blocked: false, verdict: "clear", peak };
       else if (best3 >= rule.certain) verdicts[fl.sentence] = { blocked: true, verdict: "blocked", peak };
       else unsure.push({ fl, peak, rule });
     }
     for (const fl of names) verdicts[fl.sentence] ??= { blocked: false, verdict: "name: keywords only" };
-    return { verdicts, unsure };
+    return { verdicts, unsure, thumb };
   });
   // layer 3: a video's unsure filters go to the judge in questions of up to 8; all videos' questions in one batch
   const asks = [];
@@ -697,7 +675,8 @@ async function judgeYoutube(videos, fls0, rule0 = CASCADE_STRICT) {
       rows[a.i].verdicts[fl.sentence] = { blocked, verdict: blocked ? "judge: blocked" : "judge: cleared", peak, margin: margins[n], ensemble };
     }
   });
-  return rows.map((r, i) => ({ blocked: Object.values(r.verdicts).some((x) => x.blocked), verdicts: r.verdicts, thumbnail: seen[i], batched: youtubeBatch === true }));
+  // each video's fingerprint for your own algorithm (youtube/personal.js): its title's and thumbnail's readings
+  return rows.map((r, i) => ({ blocked: Object.values(r.verdicts).some((x) => x.blocked), verdicts: r.verdicts, thumb: r.thumb, print: { t: fingerprint(states[i].text), i: fingerprint(states[i].image) }, batched: youtubeBatch === true }));
 }
 const builtFilters = new Map(); // sentence → its probe, built once
 async function filtersFor(sentences) {
@@ -710,8 +689,14 @@ async function filtersFor(sentences) {
   return out;
 }
 const youtubeFilters = () => filtersFor(yt.filters.map((f) => f.sentence));
-setYoutubeJudge(async (videos, sentences) => judgeYoutube(videos, await filtersFor(sentences)), JSON.stringify({ rule: CASCADE_STRICT, v: 5 })); // v5: thumbnails read too, so everything is checked again
-const ytState = () => ({ type: "filters", enabled: yt.enabled, filters: yt.filters.map((f) => f.sentence), stats: youtubeStats() });
+setYoutubeJudge(async (videos, sentences) => judgeYoutube(videos, await filtersFor(sentences)), JSON.stringify({ rule: CASCADE_STRICT, image: IMAGE_TAU, v: 8 })); // v8: fingerprints kept with the verdicts
+// a video clicked 👍/👎 before it was fingerprinted (e.g. remembered from before): read its title and thumbnail now
+setYoutubePrinter(async (v) => {
+  const [image] = await thumbnailsOf([v]);
+  const [st] = await batchStates([{ text: v.channel ? `${v.title} — channel: ${v.channel}` : v.title, image }]);
+  return { t: fingerprint(st.text), i: fingerprint(st.image) };
+}); // v6: thumbnails scored as image tokens
+const ytState = () => ({ type: "filters", enabled: yt.enabled, filters: yt.filters.map((f) => f.sentence), stats: youtubeStats(), recent: recentHidden() });
 function applyYoutube(reset) {
   setYoutubeFilters(yt.filters.map((f) => f.sentence));
   setYoutubeEnabled(yt.enabled && yt.filters.length > 0);
@@ -750,11 +735,11 @@ window.filterYoutube = async (filterSentences) => {
   return out;
 };
 
-// Load at Firefox startup so the popup is ready the moment it opens (only if already installed;
-// the 10-minute idle unload still frees the VRAM if it isn't used).
+// The model loads on demand: when YouTube has videos to check (the filter's first batch calls load()), not at Firefox
+// startup, so it holds no GPU memory until you use YouTube; filtering keeps it loaded (touch), and it's freed 10
+// minutes after the last use.
 hasModelInCache(MODEL_ID).catch(() => false).then((ok) => {
   installed = ok;
-  if (ok) load().catch(() => {});
-  else setStatus("Model not installed yet.");
+  setStatus(ok ? "Resting until YouTube needs it." : "Model not installed yet.");
 });
 touch();
