@@ -188,6 +188,9 @@ if (navigator.gpu) {
   const realRequestDevice = GPUAdapter.prototype.requestDevice;
   GPUAdapter.prototype.requestDevice = async function (...a) {
     const d = await realRequestDevice.apply(this, a);
+    // Rudder's vision encoder (onnxruntime) makes its own device while it starts: not WebLLM's, so not tracked here
+    // (tracking it moved the snapshot to the wrong device and every reading came back as zeros)
+    if (a[0]?.label === "rudder-vision" || globalThis.rudderVisionStarting) return d;
     queue = d.queue;
     snap.device = d;
     return d;

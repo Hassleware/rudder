@@ -62,3 +62,6 @@ export async function cascade(peak, best3, judge, rule = CASCADE) {
 // YouTube titles (one short line + channel): the judge's "No" counts for more. Tuned by hand-labelling 132 judged
 // home-feed videos for "anything about gaming" / "anything about AI" (2026-10-30): wrong blocks 9 → 6, misses 4 → 5.
 export const CASCADE_TITLES = { ...CASCADE, t: -4.5 };
+// Rudder's strict rule (the user's choice, 2026-10-31: "be very overcautious"): more titles go to the judge (gate 1.0),
+// and the judge must say No firmly to clear one (t -8: with a probe peak of 2, its No margin must be below -5).
+export const CASCADE_STRICT = { ...CASCADE, gate: 1, t: -8 };
