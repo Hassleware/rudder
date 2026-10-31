@@ -99,7 +99,7 @@ Commands:
 ## YouTube home feed reader (`extension/youtube/`, not linked to the filter yet)
 
 Sees every video's title and thumbnail **before the page shows it**, with no requests of its own, no scrolling and no screenshots; only the browser's own traffic and the page's own data.
-- `page.js` is injected into the page by `feed.js` and reads the page's own `ytInitialData` the moment YouTube sets it (and `yt-navigate-finish` data). The home HTML comes through YouTube's service worker, so it isn't read off the network.
+- `page.js` is a page script, added to the page by the content script `feed.js`, and reads the page's own `ytInitialData` the moment YouTube sets it (and `yt-navigate-finish` data). The home HTML comes through YouTube's service worker, so it isn't read off the network.
 - `intercept.js` (background) turns that data into videos (id, title, channel, thumbnail address; Mixes by their first video, Shorts from `thumbnailViewModel.thumbnailViewModel.image.sources`), reads the bytes of every thumbnail the page downloads from `i.ytimg.com` and the page's own `youtubei/v1/browse` responses (Firefox `webRequest.filterResponseData`, bytes passed on unchanged). `verdict()` is where the filter will plug in; for now it waits until title and thumbnail are both read.
 - `hide.css` + `feed.js` keep every home tile invisible (it keeps its size, so layout and lazy loading are normal) until its verdict is "show".
 - Test (no scrolling, 2048×1019 window): 41 videos read, all with titles and thumbnail addresses; the page downloaded 14 thumbnails and all 14 were read; every tile on screen was shown, each only after its title (~200 ms before) and thumbnail (30–100 ms before) were read. YouTube only downloads thumbnails for tiles near the screen, so the rest arrive as you scroll. Results: `youtube-read-test.html`, `youtube-home-test.html`.
@@ -115,10 +115,14 @@ Sees every video's title and thumbnail **before the page shows it**, with no req
   - **Failed checks hide** (not remembered; checked again next session). One filter hiding a video is enough; the rest aren't checked.
   - **Also covered:** Subscriptions/Trending/topic pages; autoplay only goes ahead if the next video has passed (otherwise YouTube's Cancel is pressed); the player's end-screen wall, end cards and in-player grids are always hidden. Not your playlists or history.
   - Decision logic checked on CPU with a fake browser and judge: `node research/intercept-check.mjs`. Not yet run live (no GPU while the user games): the judge's speed with ~45 filters at gate 1.0, and the autoplay / end-screen selectors.
-- **Thumbnails (2026-10-31): Gemma reads them.** `vision.js` runs Gemma 4's own vision encoder (ONNX `vision_encoder_q4`, 112 MB, downloaded once from Hugging Face into the extension's cache) on the GPU with onnxruntime-web 1.30 (WebGPU, vendored by `npm install`): 127 ms per thumbnail, output matching the CPU encoder (similarity 0.97–0.99). Its 66 image tokens go into our Gemma and Gemma writes out the thumbnail's text and what it shows ("finished my phd and my husband died lol — shows: a statement about a death"); that description joins title + channel for the keyword check, the probe and the judge. A video is judged once its thumbnail has been read (or 2 s after the page drew it without a download; the Shorts viewer uses titles).
-  - Tried first: the image tokens straight in the judge's prompt. Gemma read the image (asked, it copied the thumbnail text exactly) but the judge still said No to "death" (−9.1) for the husband-died thumbnail, and the probe only scores title words. Written-out text works.
-  - Pitfalls found: onnxruntime makes its own GPU device; `gpu-fixes.js` took it for WebLLM's and moved the layer recorder there, so every reading came back as zeros (`rudderVisionStarting` now keeps it out). One call for all sequences' next token (the prompt reader with one token each) aborts the runtime (exit(1)), so writing is one call per thumbnail per token, all queued, one wait per step; batches sized to the filter memory's 2048 tokens. Single-word filters ("cf3", "vlogbrothers") are names: keywords only (their probes fired on any unusual name and blocked everything).
-  - Results on the user's screenshot: hidden by the thumbnail: husband died, JSRF soundtrack, K/DA short, burns short (title keywords: K/DA cover, Batman edit); still shown: the gym "hug" short (Gemma read "spread love", saw jiu-jitsu). Ordinary controls: 11 of 12 shown. Live home page: no leaks; first screen decided ~30 s after the model was ready, scrolls 8–33 s, ~1.9 s per new video (writing ~25 ms per token is the cost); verdicts are remembered, so videos seen before are instant.
+- **Thumbnails (2026-10-31): scored as image tokens, never written out.** `vision.js` runs Gemma 4's own vision encoder (ONNX `vision_encoder_q4`, 112 MB, downloaded once from Hugging Face into the extension's cache) on the GPU with onnxruntime-web 1.30 (WebGPU, vendored by `npm install`), 8 thumbnails per call (176 ms each; one per call costs ~0.9 s). Each thumbnail's 66 image tokens are read in the same pass as its title (`[prefix] <|image> … <image|> 
+ title`); every filter's probe scores them (average of the 3 highest image tokens), standardised per filter against 40 ordinary thumbnails in `calib/` (saved per filter in storage, so only new filters pay the ~11 s). Above `IMAGE_TAU` 4.5: hidden, and the title isn't judged.
+  - Threshold, with the 29 model filters, calibrated on 20 / tested on 20 unseen ordinary thumbnails: 2.5 hid 11/20 ordinary, 3.5 6/20, **4.5 3/20**; the "my husband died" thumbnail scored 13.5 under "news, war or death", gambling 7–34; subtle photos are often missed (8/24 research topics). Known over-blocks at 4.5: a few odd ones (sardines under "alcohol"), the price of strictness.
+  - Tried and dropped: the image in the judge's prompt (it read "my husband died" but said No to "death", −9.1); Gemma writing the thumbnail out (accurate but ~1.5 s per thumbnail: one token per call per thumbnail; one call for all sequences aborts the runtime).
+  - Pitfalls: onnxruntime makes its own GPU device; `gpu-fixes.js` took it for WebLLM's and moved the layer recorder there (every reading came back zeros): `rudderVisionStarting` keeps it out. Single-word filters ("cf3", "vlogbrothers") are names: keywords only.
+  - A video is judged once its thumbnail is read, or on its title alone if no thumbnail arrives within 3 s on screen (or 2 s after the page drew it from memory; the Shorts viewer uses titles). The queue waits 150 ms when short so thumbnails batch.
+  - Live (home page, 3 scrolls): no leaks; first screen decided ~16 s after the model was ready (encoder start included), new screens 0–10 s after YouTube built them.
+- **Model on demand:** it loads when YouTube has videos to check (not at Firefox start or when the popup opens), filtering keeps it loaded, and it's freed 10 minutes after the last use. The popup shows "checking N more…" while videos wait.
 - **How it keeps up** (layers, cheapest first):
   0. **Memory:** every verdict is saved per filter set in `browser.storage.local` (newest 5000), so videos seen before, even in an earlier Firefox session, are decided instantly.
   1. **Judging ahead:** every video is queued the moment YouTube's data arrives (before its tile exists); tiles' distance from the screen only sets the order.
@@ -130,6 +134,37 @@ Sees every video's title and thumbnail **before the page shows it**, with no req
 - **Still slow:** the first screen after Firefox starts waits for the model (~8 s load, ~7 s warm-up, ~13 s fast-reader build: ready at ~28 s). Known wrong blocks: a few word matches the judge doesn't veto (Big Brother "game", 3D-printing "Benchy", fan edits).
 - `npm start` opens YouTube; the test profile is signed in.
 
+## Your own algorithm: learning from 👍 / 👎 (2026-10-31)
+
+Rudder learns what the user wants from two items it adds to every feed video's ⋮ menu: **Rudder: more like this** / **Rudder: less like this** (copies of YouTube's own items, so they look native; both menu styles: the newer one on home and the watch sidebar, the older Polymer one in search, whose own text element resets itself, so the label is a plain element). The menu belongs to the tile whose ⋮ was clicked last; items are added a few times over the next second because YouTube builds the menu after the click. 👎 hides the video at once; a short note confirms; every open YouTube tab then re-checks its tiles (a re-check never re-hides a shown tile unless it's now rejected).
+- `youtube/personal.js`: every judged video gets a fingerprint (Gemma's layer-7 readings of its title and of its thumbnail, averaged and shrunk to 256 numbers each by a fixed random projection; stored as Int8 with its verdicts). Examples: clicks (weight 1) and videos shown and not 👎'd (weight 0.2), class-balanced logistic regression retrained after every click (milliseconds). Starts predicting after 3 👎 and 3 videos that were fine.
+- Decision order: your 👍/👎 on that video; keyword matches (always hidden); channels with 2+ 👎 and no 👍 (hidden); "like videos you disliked" (> 75%) hidden; a liked channel or "like videos you liked" (< 10%) protects from model-only hides; then the filters' models.
+- Popup: what it has learned, the 25 most recently hidden videos with why and a **👍 Fine** button (shows it, learns from it), and "Forget everything it learned" (second click confirms; popups can't use confirm()).
+- Checks: `node research/personal-check.mjs` (made-up fingerprints: after 4 👎 of one kind it hides 20/20 new ones like them and 0/20 of another kind; channel rule; explicit 👍; survives restart). Live: items appear in both menu styles, 👎 hides + confirms + closes the menu, the learner starts at the 3rd 👎 and then hid an unseen look-alike, 👍 Fine brings a video back, Forget clears everything.
+- Pitfalls fixed: "shown" records made before the saved data loaded were overwritten (now merged); a click on a never-fingerprinted video waited for the GPU (now counts at once, fingerprint added later, and not re-added if forgotten meanwhile).
+
+## Rudder test set (research/testset, 2026-10-31)
+
+412 YouTube videos (title, channel, thumbnail) labelled hide/show under the 31 default filters: 273 from YouTube searches (5 per topic: 32 topics the filters cover, 25 harmless ones; a query's topic is its label, hand-fixed where the video wasn't what the query was after), the user's 9-video screenshot (their verdicts), and the 130 thumbnail-benchmark items relabelled (e.g. "stock market investing" → hide under stocks, "hot dog eating contest" → hide under food challenges, bees/space/football → show). Split alternately into dev (thresholds) and test (results); the screenshot is always test.
+- `collect.py` (searches + thumbnails), `build.py` (merge + labels + split), `features.mjs` (each model's raw output, cached; Node, CPU), `score.mjs` (pipelines, dev-tuned thresholds, test results). Data lives outside the repo (scratchpad `testset/`); re-run the scripts to rebuild.
+- CPU speeds (one thread pool, no GPU): Tesseract 61 ms per thumbnail, Florence-2 base OCR 590–770 ms, SigLIP 2 base 75 ms (all filter prompts), DeBERTa zero-shot (29 filters) see below.
+- OCR: Florence-2 reads real thumbnails far better than Tesseract ("JSRF / JET SET RADIO FUTURE / SEGA", "spread love", "finished my phd and my husband died lol"; Tesseract mostly noise outside plain text). Use its line-by-line mode (`<OCR_WITH_REGION>`): plain `<OCR>` glues lines without spaces ("stretchmy burnsTHIS").
+- **Results (test half, thresholds tuned on dev to wrongly hide at most ~10% of harmless videos):**
+
+  | Pipeline | Catches | Wrongly hides | Screenshot (7 to hide) |
+  |---|---|---|---|
+  | Keywords on title | 73% | 6% | 3 |
+  | + keywords on Tesseract OCR | 78% | 7% | 5 |
+  | + keywords on Florence-2 OCR | 81% | 10% | 6 |
+  | + SigLIP (v1 or 2) zero-shot on the image | 81–82% | 11% | 6 |
+  | + DeBERTa-v3 xsmall zero-shot on title + OCR | 81% | 10% | 6 |
+  | **+ DeBERTa-v3 base zero-shot (MoritzLaurer zeroshot-v2.0) on title + OCR** | **90%** | 11% | 6 (all but the "hug" short; also hides Edmund/candy) |
+  | Learned from the dev labels (logistic regression on all scores, standing in for the user's own clicks) | 94% at 10% (96% at 15%) | 10–15% | 5–6 |
+
+  SigLIP zero-shot alone catches 29% at 12% wrong: image-text prompts for topics like "depressing" barely separate. The zero-shot text classifier on title + thumbnail text is the strong signal; learning from labels adds a few more points on top.
+  - CPU per video: DeBERTa base 0.45–0.5 s for all 29 filters (xsmall 0.19 s); on the GPU both should be several times faster (not yet measured).
+- Keyword fixes from the test set: "news" was stemmed to "new" (matched every "New …"), bare "hack(s)" caught life hacks, "recovery" caught yoga, "BBC"/"ITV" caught nature documentaries. Keywords on titles: 73% caught, 6% of harmless wrongly hidden (test).
+
 ## Rules of thumb
 
 - **Measure before you fix.** Count GPU calls and time each program build. Every big win here came from a measurement, not a guess.
