@@ -169,28 +169,34 @@
     over.querySelector(".ytp-autonav-endscreen-upnext-cancel-button, button[aria-label*='Cancel' i]")?.click(); // strict: not passed (yet) → no autoplay
   }
 
-  // Your own algorithm: 👍 / 👎 in each video's ⋮ menu (both of YouTube's menu styles). The menu belongs to the tile
-  // whose ⋮ was clicked last; Rudder's two items are copies of YouTube's own items (same look), with their own action.
+  // Your own algorithm: 👍 / 👎 in each video's ⋮ menu (both of YouTube's menu styles), including the ⋮ under the video
+  // you're watching and on a short. The menu belongs to the video whose ⋮ was clicked last; Rudder's two items are
+  // copies of YouTube's own items (same look), with their own action.
   const ALL = [TILES, SEARCH, CHANNEL, OTHER, SIDE].join(", ");
   let menuFor = null; // { id, title, channel, tile, at }
   document.addEventListener("click", (e) => {
     const btn = e.target.closest?.("button");
     const label = (btn?.getAttribute("aria-label") ?? "").toLowerCase();
-    const tile = btn?.closest(ALL);
-    if (!tile || !(label.includes("action menu") || label.includes("more actions"))) return;
-    menuFor = { id: idOf(tile), tile, at: Date.now(),
+    const tile = btn?.closest(ALL), playing = !tile && btn?.closest("ytd-watch-metadata, ytd-shorts");
+    if (!(tile || playing) || !(label.includes("action menu") || label.includes("more actions"))) return;
+    if (tile) menuFor = { id: idOf(tile), tile, at: Date.now(),
       title: text(tile.querySelector("#video-title, .yt-lockup-metadata-view-model__title, h3")),
       channel: text(tile.querySelector('a[href^="/@"]:not(#avatar-link), ytd-channel-name a, .yt-content-metadata-view-model__metadata-text')) };
+    else { // the video you're watching, or the short on screen (its title and channel are in Rudder's data already)
+      const short = playing.tagName === "YTD-SHORTS";
+      menuFor = { id: short ? shortId() : new URLSearchParams(location.search).get("v"), tile: null, short, at: Date.now(),
+        title: short ? null : text(playing.querySelector("h1")), channel: short ? null : text(playing.querySelector("ytd-channel-name a")) };
+    }
     for (const ms of [30, 120, 300, 600, 1000, 1600]) setTimeout(addMenuItems, ms); // the menu is built a moment after the click
   }, true);
-  const ICON = {
-    up: "M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z",
-    down: "M15 3H6c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 23l6.59-6.59c.36-.36.58-.86.58-1.41V5c0-1.1-.9-2-2-2zm4 0v12h4V3h-4z",
-  };
-  const svg = (d) => {
-    const ns = "http://www.w3.org/2000/svg", s = document.createElementNS(ns, "svg"), p = document.createElementNS(ns, "path");
-    s.setAttribute("viewBox", "0 0 24 24"); s.setAttribute("width", "24"); s.setAttribute("height", "24"); s.setAttribute("fill", "currentColor"); s.style.display = "block";
-    p.setAttribute("d", d); s.append(p);
+  // the rudder from Rudder's icon: blue, tiller up = more like this; red, upside down = less like this
+  const svg = (like) => {
+    const ns = "http://www.w3.org/2000/svg", el = (tag, attrs) => { const e = document.createElementNS(ns, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); return e; };
+    const s = el("svg", { viewBox: "-13 0 124 124", width: "24", height: "24", fill: like ? "#5BB8F0" : "#E5484D" }), g = el("g", like ? {} : { transform: "rotate(180 49 62)" });
+    g.append(el("rect", { x: 14, y: 0, width: 8, height: 14, rx: 1 }), el("rect", { x: 8, y: 12, width: 22, height: 8, rx: 2 }),
+      el("path", { "fill-rule": "evenodd", d: "M10 22 H30 C52 22 72 16 84 6 Q90 2 90 10 C90 52 76 96 48 118 Q42 124 34 124 H10 Z M29 40 H37 C49 40 59 37 67 33 C66 60 57 85 37 102 H29 Z" }));
+    s.append(g);
+    s.style.display = "block";
     return s;
   };
   function toast(message) {
@@ -206,7 +212,7 @@
     const sample = list?.querySelector("yt-list-item-view-model:not([rudder-item]), ytd-menu-service-item-renderer:not([rudder-item])");
     if (!sample || list.querySelector(`[rudder-item][rudder-for="${menuFor.id}"]`)) return;
     for (const old of list.querySelectorAll("[rudder-item]")) old.remove(); // the menu is reused for the next video
-    const target = menuFor;
+    const target = menuFor, top = list.firstElementChild; // both go above YouTube's items, in order
     for (const [like, label] of [[true, "Rudder: more like this"], [false, "Rudder: less like this"]]) {
       const item = sample.cloneNode(true);
       item.setAttribute("rudder-item", ""); item.setAttribute("rudder-for", target.id);
@@ -215,18 +221,19 @@
       const title = item.querySelector(".ytListItemViewModelTitle, yt-formatted-string.title");
       if (title) { const span = Object.assign(document.createElement("span"), { className: title.className, textContent: label }); title.replaceWith(span); }
       const icon = item.querySelector("svg")?.parentElement;
-      if (icon) icon.replaceChildren(svg(like ? ICON.up : ICON.down));
+      if (icon) icon.replaceChildren(svg(like));
       const act = (e) => {
         e.preventDefault(); e.stopImmediatePropagation();
         if (e.type !== "click") return;
         drop.close?.();
         document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-        if (!like) { target.tile.setAttribute("gemma-verdict", "block"); settleShelves(); }
+        if (!like && target.tile) { target.tile.setAttribute("gemma-verdict", "block"); settleShelves(); }
+        if (!like && target.short && host() && shortId() === target.id) { host().setAttribute("gemma-verdict", "block"); skip(host(), target.id, false); } // a short you 👎: on to the next
         toast(like ? "Rudder will keep videos like this" : "Rudder will show you less like this");
         browser.runtime.sendMessage({ type: "rudder-feedback", id: target.id, like, title: target.title, channel: target.channel }).catch(() => {});
       };
       for (const type of ["click", "mousedown", "mouseup", "pointerdown", "pointerup", "tap"]) item.addEventListener(type, act, true);
-      list.insertBefore(item, list.firstElementChild);
+      list.insertBefore(item, top);
     }
   }
 

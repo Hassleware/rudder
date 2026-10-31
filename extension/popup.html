@@ -17,8 +17,6 @@
   body { margin: 0; width: 380px; max-height: 600px; overflow-y: auto; background: var(--bg); color: var(--fg); padding: 16px; }
   .wordmark { display: block; width: 100%; height: auto; color: var(--fg); }
   #status { margin: 10px 0 0; font-size: 12px; color: var(--muted); min-height: 1.4em; }
-  #setup { margin-top: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
-  #setup p { margin: 0 0 8px; }
   section { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
   h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
   .row { display: flex; align-items: center; gap: 10px; }
@@ -47,7 +45,7 @@
   #recent .what { flex: 1; min-width: 0; }
   #recent .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #recent .why { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #recent button { flex: none; padding: 3px 8px; font-size: 12px; }
+  #recent button { flex: none; padding: 3px 8px; font-size: 12px; display: inline-flex; align-items: center; gap: 4px; }
   .link { background: none; border: none; color: var(--muted); padding: 0; font-size: 12px; text-decoration: underline; cursor: pointer; margin-top: 8px; }
   .del { width: 28px; height: 28px; padding: 0; line-height: 1; font-size: 16px; color: var(--muted); }
   .del:hover { color: var(--danger); border-color: var(--danger); }
@@ -73,11 +71,6 @@
 <path d="M6860.254901960783 1840.5882352941176H7165.254901960783V1308.5882352941176H7405.254901960783L7689.254901960783 1840.5882352941176H8027.254901960783L7710.254901960783 1259.5882352941176C7880.254901960783 1186.5882352941176 7974.254901960783 1039.5882352941176 7974.254901960783 835.5882352941176C7974.254901960783 542.5882352941176 7780.254901960783 350.58823529411757 7441.254901960783 350.58823529411757H6860.254901960783ZM7165.254901960783 1061.5882352941176V602.5882352941176H7384.254901960783C7571.254901960783 602.5882352941176 7659.254901960783 685.5882352941176 7659.254901960783 835.5882352941176C7659.254901960783 984.5882352941176 7571.254901960783 1061.5882352941176 7385.254901960783 1061.5882352941176Z"/>
 </svg>
     <div id="status" role="status"></div>
-    <div id="setup" hidden>
-      <p>The model (~2.9 GB) runs on your own GPU and isn't installed yet.</p>
-      <button id="download" class="primary">Download (2.9 GB)</button>
-      <button id="import">Import model file…</button>
-    </div>
   </header>
 
   <section>
@@ -92,17 +85,17 @@
   <section>
     <h2>Your algorithm</h2>
     <p id="learned"></p>
-    <p class="hint">Teach Rudder with 👍 / 👎 in any video's ⋮ menu. Recently hidden, in case one was fine:</p>
+    <p class="hint">Teach Rudder with "Rudder: more like this / less like this" in any video's ⋮ menu, including the video or short you're watching. Recently hidden, in case one was fine:</p>
     <ul id="recent"></ul>
-    <button class="link" id="forget" title="Forget every 👍 and 👎 you gave">Forget everything it learned</button>
+    <button class="link" id="forget" title="Forget every like and dislike you gave">Forget everything it learned</button>
   </section>
 
   <section>
     <h2>Filters</h2>
-    <p class="hint">Describe what to hide, in your own words. A video is hidden if it matches any of them.</p>
+    <p class="hint">Topics to hide, separated by commas. A video is hidden if its title, channel or thumbnail text uses a filter's words or words closely tied to them (e.g. "video games" also covers Minecraft, Deadlock, speedruns).</p>
     <ul id="list"></ul>
     <form id="add">
-      <input type="text" id="new" maxlength="200" placeholder="e.g. anything about crypto" aria-label="New filter">
+      <input type="text" id="new" maxlength="200" placeholder="e.g. crypto, bitcoin" aria-label="New filter">
       <button class="primary">Add</button>
     </form>
   </section>
