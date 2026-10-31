@@ -2,7 +2,7 @@
   "manifest_version": 2,
   "name": "Rudder: Choose what you get recommended",
   "version": "0.1.0",
-  "description": "Hides YouTube recommendations you don't want, judged by a model running on your own GPU.",
+  "description": "Hides YouTube recommendations you don't want: keywords, thumbnail text and your own 👍 / 👎, all on your own device.",
   "browser_specific_settings": {
     "gecko": {
       "id": "gemma-local@doomo.local",
@@ -19,7 +19,6 @@
     "unlimitedStorage",
     "https://huggingface.co/*",
     "https://*.hf.co/*",
-    "https://raw.githubusercontent.com/*",
     "webRequest",
     "webRequestBlocking",
     "https://www.youtube.com/*",
