@@ -4,7 +4,7 @@
 // own image download) and run the filter, says "show"; "block" takes it out. Invisible ones keep their size, so the
 // layout and YouTube's lazy image loading work as normal. This script reads the page and where tiles are; it doesn't
 // scroll or request anything itself. One exception, fill(): when Rudder has removed videos, it lets YouTube's own
-// "load more" fetch the next page, as a scroll would. Never filtered: the video being watched, the short the Shorts viewer was opened on, the
+// "load more" fetch the next page, as a scroll would. Shorts rows are refilled from shorts the page already has. Never filtered: the video being watched, the short the Shorts viewer was opened on, the
 // playlist panel.
 (() => {
   // add a page script (youtube/page.js) so the page's own data can be read, and pass it to the background page
@@ -26,17 +26,21 @@
   const GRID = 'ytd-browse[page-subtype="home"] ytd-rich-grid-renderer';
   let busy = false, again = false;
   const text = (el) => el?.textContent.trim().replace(/\s+/g, " ") || null;
+  // the Shorts viewer: one slot per short in the swipe sequence, each showing its thumbnail until the player moves in
+  const SLOTS = "ytd-shorts .reel-video-in-sequence-new";
+  const slotId = (slot) => slot.querySelector(".reel-video-in-sequence-thumbnail")?.style.backgroundImage.match(/\/vi\/([\w-]{11})/)?.[1];
   const idOf = (tile) => {
+    if (tile.matches(SLOTS)) return slotId(tile);
     const href = tile.querySelector('a[href*="/watch?v="], a[href*="/shorts/"]')?.getAttribute("href") ?? "";
     return href.match(/[?&]v=([\w-]{11})/)?.[1] ?? href.match(/\/shorts\/([\w-]{11})/)?.[1];
   };
 
   // Tiles are revealed strictly in page order: one is shown only once every tile before it is decided, so the grid
   // fills from the top with no holes ("ready" = passed, waiting for an earlier tile). Rejected tiles leave the grid.
-  // A tile that stays undecided for more than 5 s (e.g. YouTube never filled it in) stops holding the rest back: it
-  // stays hidden and the ones after it may show.
+  // Nothing already on screen ever moves. A tile YouTube never filled in stops holding the rest back after 5 s (it
+  // stays hidden); one still being checked holds them for up to 60 s. Shorts viewer slots (free) don't wait on each other.
   let since = new WeakMap();
-  function reveal(tiles) {
+  function reveal(tiles, free) {
     let open = true;
     const shown = [], t = Date.now();
     for (const tile of tiles) {
@@ -45,7 +49,7 @@
       if (v === "ready" && open) { tile.setAttribute("gemma-verdict", "show"); shown.push(tile.getAttribute("gemma-id")); continue; }
       if (v === "show" || v === "ready") continue;
       if (!since.has(tile)) since.set(tile, t);
-      if (t - since.get(tile) < 5000) open = false;
+      if (!free && t - since.get(tile) < (tile.hasAttribute("gemma-id") ? 60000 : 5000)) open = false;
     }
     if (shown.length) browser.runtime.sendMessage({ type: "yt-shown", ids: shown, at: Date.now() }).catch(() => {});
   }
@@ -57,16 +61,43 @@
     if (!list) return;
     const perRow = parseInt(getComputedStyle(grid).getPropertyValue("--ytd-rich-grid-items-per-row")) || 4;
     const kids = [...list.children], places = []; // places[k] = order of the k-th tile that takes a place in the grid
+    const item = (el) => el.tagName === "YTD-RICH-ITEM-RENDERER", inPlace = (el) => el.getAttribute("gemma-verdict") !== "block";
     kids.forEach((el, i) => {
-      if (el.tagName === "YTD-RICH-ITEM-RENDERER") { el.style.order = i * 10; if (el.getAttribute("gemma-verdict") !== "block") places.push(i * 10); }
+      if (item(el)) { el.style.order = i * 10; if (inPlace(el)) places.push(i * 10); }
       else if (el.tagName !== "YTD-RICH-SECTION-RENDERER") el.style.order = 1e7; // the "load more" spinner stays last
     });
     let before = 0;
     kids.forEach((el, i) => {
-      if (el.tagName === "YTD-RICH-ITEM-RENDERER") { if (el.getAttribute("gemma-verdict") !== "block") before++; return; }
+      if (item(el)) { if (inPlace(el)) before++; return; }
       if (el.tagName !== "YTD-RICH-SECTION-RENDERER") return;
       const need = Math.ceil(before / perRow) * perRow; // first row boundary at or after this shelf's place
       el.style.order = need === before ? i * 10 : need <= places.length ? places[need - 1] + 5 : 1e7 - 1;
+    });
+    fillShorts();
+  }
+
+  // Shorts rows: each draws 6 of the 9 shorts YouTube sent; its "Show more" draws the rest from the page's own data (no
+  // request). Once Rudder removes one, the row is expanded; once a row's shorts are all decided, shown shorts from later
+  // rows move up to fill it, and a row still not full is hidden. One row each.
+  function fillShorts() {
+    const shelves = [...document.querySelectorAll(`${GRID} ytd-rich-shelf-renderer[is-shorts]`)];
+    const v = (el) => el.getAttribute("gemma-verdict"), items = (sh) => [...sh.querySelectorAll("ytd-rich-item-renderer")];
+    shelves.forEach((shelf, i) => {
+      if (!shelf.hasAttribute("rudder-expanded") && items(shelf).some((el) => v(el) === "block")) {
+        const more = [...shelf.querySelectorAll("button")].find((b) => /show more/i.test(b.getAttribute("aria-label") || b.textContent));
+        if (more) { shelf.setAttribute("rudder-expanded", ""); more.click(); }
+      }
+      const perRow = +shelf.getAttribute("elements-per-row") || 6, into = shelf.querySelector("#contents");
+      const isDecided = () => items(shelf).every((el) => v(el) === "show" || v(el) === "block");
+      let need = perRow - items(shelf).filter((el) => v(el) === "show").length;
+      if (isDecided()) { // appended after its own shown shorts: no gap
+        for (const donor of shelves.slice(i + 1)) {
+          for (const el of items(donor)) if (need > 0 && into && v(el) === "show") { into.append(el); need--; }
+        }
+      }
+      const mine = items(shelf), decided = isDecided();
+      mine.filter((el) => v(el) !== "block").forEach((el, k) => el.toggleAttribute("rudder-over", shelf.hasAttribute("rudder-expanded") && k >= perRow));
+      shelf.closest("ytd-rich-section-renderer")?.toggleAttribute("rudder-short", decided && mine.filter((el) => v(el) === "show").length < perRow);
     });
   }
 
@@ -184,19 +215,20 @@
     }
   }
 
-  // Fill the feed: once Rudder has removed videos from the home grid or the sidebar, YouTube's own "load more" spot
-  // (what a scroll would reach) is briefly pinned on screen, invisible, so YouTube fetches its next page itself: the
-  // same request a scroll sends. Stops when the spot is 2 screens below the window, or after 4 pages per visit.
-  const MORE = [GRID, "ytd-watch-next-secondary-results-renderer"];
-  let pages = { href: null, n: 0 };
+  // Fill the feed: while the home grid has fewer than 8 rows (32 videos) shown or still being checked, or the sidebar
+  // fewer than 20, YouTube's own "load more" spot (what a scroll would reach) is briefly pinned on screen, invisible,
+  // so YouTube fetches its next page itself: the same request a scroll sends. At most 4 pages per visit, 4 s apart.
+  const MORE = [[GRID, ":scope > #contents > ytd-rich-item-renderer", 32], ["ytd-watch-next-secondary-results-renderer", "yt-lockup-view-model, ytd-compact-video-renderer", 20]];
+  let pages = { href: null, n: 0, at: 0 };
   function fill() {
-    if (pages.href !== location.href) pages = { href: location.href, n: 0 };
-    for (const box of MORE) {
+    if (pages.href !== location.href) pages = { href: location.href, n: 0, at: 0 };
+    for (const [box, tiles, want] of MORE) {
       const list = document.querySelector(box), spot = list?.querySelector("ytd-continuation-item-renderer");
-      if (!spot || spot.hasAttribute("rudder-more") || pages.n >= 4 || !list.querySelector('[gemma-verdict="block"]')) continue;
-      const top = spot.getBoundingClientRect().top;
-      if (top < innerHeight || top > 3 * innerHeight) continue; // on screen: YouTube loads it anyway; far: enough
-      pages.n++;
+      if (!spot || spot.hasAttribute("rudder-more") || pages.n >= 4 || Date.now() - pages.at < 4000) continue;
+      const v = (el) => el.getAttribute("gemma-verdict");
+      const kept = [...list.querySelectorAll(tiles)].filter((el) => v(el) !== "block").length;
+      if (kept >= want) continue;
+      pages.n++; pages.at = Date.now();
       spot.setAttribute("rudder-more", "");
       const was = spot.style.cssText;
       spot.style.cssText = was + ";position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none";
@@ -210,7 +242,7 @@
     busy = true;
     try {
       addMenuItems();
-      const lists = [TILES, SEARCH, CHANNEL, OTHER, SIDE].map((s) => [...document.querySelectorAll(s)]), ask = [];
+      const lists = [TILES, SEARCH, CHANNEL, OTHER, SIDE, SLOTS].map((s) => [...document.querySelectorAll(s)]), ask = [];
       const watching = new URLSearchParams(location.search).get("v");
       for (const tile of lists.flat()) {
         if (tile.querySelector("ytd-ad-slot-renderer")) { tile.setAttribute("gemma-verdict", "block"); continue; } // ad
@@ -218,10 +250,10 @@
         if (!id) continue; // not filled in yet: stays hidden
         if (tile.getAttribute("gemma-id") !== id) { tile.setAttribute("gemma-id", id); tile.removeAttribute("gemma-verdict"); } // YouTube reuses tiles
         if (tile.hasAttribute("gemma-verdict") && !(recheck && id !== watching)) continue;
-        if (id === watching) { tile.setAttribute("gemma-verdict", "ready"); continue; } // the video being watched: never filtered
+        if (id === watching || (id === opened && tile.matches(SLOTS))) { tile.setAttribute("gemma-verdict", "ready"); continue; } // the video being watched, or the short the viewer was opened on: never filtered
         const img = tile.querySelector("img"), r = tile.getBoundingClientRect();
         ask.push({
-          tile, id, imageLoaded: !!(img?.complete && img.naturalWidth),
+          tile, id, imageLoaded: !!(img?.complete && img.naturalWidth), viewer: tile.matches(SLOTS) || undefined,
           dist: (r.top - innerHeight) / innerHeight, // screens below the window (≤ 0: on screen); the nearest go first
           // what the tile itself shows, for videos whose data didn't come through (only used then)
           title: text(tile.querySelector("#video-title, .yt-lockup-metadata-view-model__title, h3")),
@@ -236,7 +268,7 @@
           if (v === "show" && was !== "show") tile.setAttribute("gemma-verdict", "ready"); // a re-check never re-hides a shown tile
         }
       }
-      lists.forEach(reveal);
+      lists.forEach((l, k) => reveal(l, k === lists.length - 1)); // the last list: Shorts viewer slots
       settleShelves();
       fill();
       await autoplay();
@@ -249,7 +281,17 @@
 
   let timer = null;
   const soon = () => { clearTimeout(timer); timer = setTimeout(check, 50); };
-  new MutationObserver(() => { gateShort(); pauseIfHidden(); addMenuItems(); soon(); }).observe(document.documentElement, { childList: true, subtree: true });
+  // a Shorts slot whose short changed is hidden again at once, before the next frame (fail closed)
+  const regateSlots = () => {
+    for (const slot of document.querySelectorAll(SLOTS)) {
+      const id = slotId(slot);
+      if (slot.getAttribute("gemma-id") !== (id ?? "")) { slot.setAttribute("gemma-id", id ?? ""); slot.removeAttribute("gemma-verdict"); }
+    }
+  };
+  new MutationObserver(() => { gateShort(); regateSlots(); pauseIfHidden(); addMenuItems(); soon(); }).observe(document.documentElement, { childList: true, subtree: true });
+  new MutationObserver((records) => {
+    if (records.some((r) => r.target.classList?.contains("reel-video-in-sequence-thumbnail"))) { regateSlots(); soon(); }
+  }).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ["style"] });
   browser.runtime.onMessage.addListener((msg) => {
     if (msg?.type === "yt-ready") soon();
     if (msg?.type === "yt-recheck") check(true); // you taught Rudder something: re-decide every tile on the page
