@@ -63,5 +63,6 @@ export async function cascade(peak, best3, judge, rule = CASCADE) {
 // home-feed videos for "anything about gaming" / "anything about AI" (2026-10-30): wrong blocks 9 → 6, misses 4 → 5.
 export const CASCADE_TITLES = { ...CASCADE, t: -4.5 };
 // Rudder's strict rule (the user's choice, 2026-10-31: "be very overcautious"): more titles go to the judge (gate 1.0),
-// and the judge must say No firmly to clear one (t -8: with a probe peak of 2, its No margin must be below -5).
+// and the judge must say No firmly to clear one (t -8). Checked in a live hunt (2026-10-31): between -8 and -4.5 the
+// judge was right as often as wrong (Jerma, League, Theranos vs drum & bass sets, a VFX reel), so strict wins the tie.
 export const CASCADE_STRICT = { ...CASCADE, gate: 1, t: -8 };

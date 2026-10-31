@@ -577,7 +577,9 @@ async function batchJudge(pairs) {
 // IMAGE_TAU 4.5, measured with the 29 default filters (calibrated on 20, tested on 20 unseen ordinary thumbnails,
 // 2026-10-31): ordinary hidden 3/20 (2.5: 11/20, 3.5: 6/20); strong signals caught (a thumbnail saying "my husband
 // died" scored 13.5 under "news, war or death"; gambling 7–34); subtle photos often not (8/24 research topics).
-const IMAGE_TAU = 4.5;
+// Raised to 7 after a live hunt (2026-10-31): of ~20 videos hidden by thumbnail alone between 4.5 and 7, about half were
+// harmless (Star Wars, a football score, a jazz cover, fries); the right ones were also caught by their titles.
+const IMAGE_TAU = 7;
 const thumbs = new Map(); // id → { n, rows }
 let visionError = null, calibReadings = null;
 async function thumbnailsOf(videos) {
@@ -668,11 +670,19 @@ async function judgeYoutube(videos, fls0, rule0 = CASCADE_STRICT) {
   // layer 3: a video's unsure filters go to the judge in questions of up to 8; all videos' questions in one batch
   const asks = [];
   rows.forEach((r, i) => { for (let k = 0; k < r.unsure.length; k += GROUP) { const g = r.unsure.slice(k, k + GROUP); asks.push({ i, g, filter: g.map((u) => asked(u.fl.sentence)).join('" or "'), text: texts[i] }); } });
-  const margins = asks.length ? await batched(() => batchJudge(asks), async () => { const m = []; for (const a of asks) m.push(await judge(a.filter, a.text)); return m; }) : [];
+  const ask = (list) => (list.length ? batched(() => batchJudge(list), async () => { const m = []; for (const a of list) m.push(await judge(a.filter, a.text)); return m; }) : []);
+  const margins = await ask(asks);
+  // a group's Yes doesn't say which filter it meant: each filter it would hide the video under is asked again on its
+  // own, so one filter's Yes ("animal cruelty" for a funny-animals video) can't hide it under all the others
+  const singles = [];
+  asks.forEach((a, n) => {
+    if (a.g.length > 1) for (const u of a.g) if (u.peak + u.rule.w * margins[n] > u.rule.t) singles.push({ i: a.i, g: [u], n, filter: asked(u.fl.sentence), text: a.text });
+  });
+  const own = new Map((await ask(singles)).map((m, k) => [singles[k].n + "|" + singles[k].g[0].fl.sentence, m]));
   asks.forEach((a, n) => {
     for (const { fl, peak, rule } of a.g) {
-      const ensemble = peak + rule.w * margins[n], blocked = ensemble > rule.t;
-      rows[a.i].verdicts[fl.sentence] = { blocked, verdict: blocked ? "judge: blocked" : "judge: cleared", peak, margin: margins[n], ensemble };
+      const margin = own.get(n + "|" + fl.sentence) ?? margins[n], ensemble = peak + rule.w * margin, blocked = ensemble > rule.t;
+      rows[a.i].verdicts[fl.sentence] = { blocked, verdict: blocked ? "judge: blocked" : "judge: cleared", peak, margin, ensemble };
     }
   });
   // each video's fingerprint for your own algorithm (youtube/personal.js): its title's and thumbnail's readings
@@ -689,7 +699,7 @@ async function filtersFor(sentences) {
   return out;
 }
 const youtubeFilters = () => filtersFor(yt.filters.map((f) => f.sentence));
-setYoutubeJudge(async (videos, sentences) => judgeYoutube(videos, await filtersFor(sentences)), JSON.stringify({ rule: CASCADE_STRICT, image: IMAGE_TAU, v: 8 })); // v8: fingerprints kept with the verdicts
+setYoutubeJudge(async (videos, sentences) => judgeYoutube(videos, await filtersFor(sentences)), JSON.stringify({ rule: CASCADE_STRICT, image: IMAGE_TAU, v: 13 })); // v8: fingerprints kept with the verdicts; v9: keyword fixes, no placeholder thumbnails; v10: filters judged on their own
 // a video clicked 👍/👎 before it was fingerprinted (e.g. remembered from before): read its title and thumbnail now
 setYoutubePrinter(async (v) => {
   const [image] = await thumbnailsOf([v]);
