@@ -1,11 +1,11 @@
 {
   "manifest_version": 2,
   "name": "Rudder: Choose what you get recommended",
-  "version": "0.1.0",
+  "version": "1.0.1",
   "description": "Hides YouTube recommendations you don't want: keywords, thumbnail text and your own 👍 / 👎, all on your own device.",
   "browser_specific_settings": {
     "gecko": {
-      "id": "gemma-local@doomo.local",
+      "id": "rudder@doomo.local",
       "strict_min_version": "142.0",
       "data_collection_permissions": {
         "required": [
