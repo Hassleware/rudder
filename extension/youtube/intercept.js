@@ -108,11 +108,16 @@ browser.webRequest.onBeforeRequest.addListener((d) => tap(d, (bytes) => {
   learn(JSON.parse(new TextDecoder().decode(bytes)), new URL(d.url).pathname.split("/").pop(), d.tabId);
 }), { urls: ["browse*", "next*", "search*", "reel/reel_watch_sequence*", "player*"].map((p) => "https://www.youtube.com/youtubei/v1/" + p) }, ["blocking"]); // any type: YouTube's service worker may make them
 
+// a thumbnail size YouTube doesn't have (e.g. maxresdefault for an old upload) comes back as an error with a small grey
+// placeholder picture: every such video would be judged on the same grey image, so those are skipped
+const badImage = new Set();
+browser.webRequest.onHeadersReceived.addListener((d) => { if (d.statusCode >= 400) badImage.add(d.requestId); },
+  { urls: ["https://i.ytimg.com/vi/*", "https://i.ytimg.com/vi_webp/*"], types: ["image"] });
 browser.webRequest.onBeforeRequest.addListener((d) => {
   const id = d.url.match(/\/vi(?:_webp)?\/([\w-]{11})\//)?.[1];
   if (!id) return;
   tap(d, (bytes) => {
-    if (!bytes.length) return;
+    if (badImage.delete(d.requestId) || !bytes.length) return;
     const v = videos.get(id) ?? { id, order: ++order, source: "image only", seenAt: null };
     videos.set(id, v);
     if (!v.image || bytes.length > v.image.length) { // keep the largest version the page loaded
@@ -153,9 +158,11 @@ function why(v) {
   const s = filters.find((x) => v.verdicts?.[x]?.blocked && /^keyword/.test(v.verdicts[x].verdict)) ?? filters.find((x) => v.verdicts?.[x]?.blocked);
   return s ? `${s.replace(/^anything (about )?/i, "")} (${v.verdicts[s].verdict})` : "";
 }
-// the keyword layer (youtube/keywords.js): no model, runs the moment a title is known
+// the keyword layer (youtube/keywords.js): no model, runs the moment a title is known, on every filter (so new
+// keywords also apply to videos remembered as cleared by the model)
 function keywords(v) {
-  for (const s of missing(v)) {
+  for (const s of filters) {
+    if (v.verdicts[s]?.blocked) continue;
     const m = keywordMatch(s, v.title, v.channel);
     if (m) v.verdicts[s] = { blocked: true, verdict: "keyword: " + m };
   }

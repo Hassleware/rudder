@@ -3,7 +3,7 @@
 // Run: node research/intercept-check.mjs
 const store = {};
 globalThis.browser = {
-  webRequest: { onBeforeRequest: { addListener() {} }, filterResponseData() {} },
+  webRequest: { onBeforeRequest: { addListener() {} }, onHeadersReceived: { addListener() {} }, filterResponseData() {} },
   runtime: { onMessage: { addListener() {} } },
   tabs: { sendMessage: async () => {} },
   storage: { local: { get: async () => ({ ...store }), set: async (o) => Object.assign(store, o), remove: async () => {} } },
