@@ -201,22 +201,16 @@
   };
   function toast(message) {
     const t = Object.assign(document.createElement("div"), { textContent: message });
-    Object.assign(t.style, { position: "fixed", left: "50%", bottom: "24px", transform: "translateX(-50%)", zIndex: 99999, background: "#14191f", color: "#e8eef4", border: "1px solid #5bb8f0", borderRadius: "8px", padding: "10px 16px", font: "14px/1.4 Roboto, system-ui, sans-serif", boxShadow: "0 4px 16px #0006", transition: "opacity .3s" });
+    Object.assign(t.style, { position: "fixed", left: "50%", bottom: "24px", transform: "translateX(-50%)", zIndex: 99999, background: "#f2ede1", color: "#111", border: "2px solid #111", borderRadius: "0", padding: "8px 14px", font: "700 13px/1.4 ui-monospace, 'SF Mono', Menlo, Consolas, monospace", textTransform: "uppercase", letterSpacing: ".06em", transition: "opacity .3s" });
     document.body.append(t);
     setTimeout(() => { t.style.opacity = "0"; setTimeout(() => t.remove(), 400); }, 2600);
   }
   // On the video or short you're watching, YouTube's own like / dislike buttons wear Rudder's rudders and teach Rudder
   // too: one click likes it on YouTube and tells Rudder. Clicking again to undo only undoes it on YouTube.
-  function decorateThumbs() {
+  function decorateThumbs() { // only a label on the button: youtube/hide.css draws the rudder in YouTube's own icon box
     for (const scope of document.querySelectorAll("ytd-watch-metadata, ytd-shorts")) {
-      for (const [kind, like] of [["like", true], ["dislike", false]]) {
-        for (const btn of scope.querySelectorAll(`${kind}-button-view-model button, #${kind}-button button`)) {
-          const own = [...btn.querySelectorAll("svg")].find((x) => !x.classList.contains("rudder-svg"));
-          if (!own) continue;
-          if (own.style.display !== "none") own.style.display = "none"; // YouTube redraws it on every toggle: hidden again
-          if (!own.parentElement.querySelector(":scope > .rudder-svg")) { const r = svg(like); r.classList.add("rudder-svg"); own.after(r); }
-          btn.setAttribute("rudder-thumb", kind);
-        }
+      for (const kind of ["like", "dislike"]) {
+        for (const btn of scope.querySelectorAll(`${kind}-button-view-model button, #${kind}-button button`)) if (btn.getAttribute("rudder-thumb") !== kind) btn.setAttribute("rudder-thumb", kind);
       }
     }
   }
@@ -226,7 +220,7 @@
     const like = btn.getAttribute("rudder-thumb") === "like", short = !!btn.closest("ytd-shorts");
     const id = short ? shortId() : new URLSearchParams(location.search).get("v"), meta = btn.closest("ytd-watch-metadata");
     if (!id) return;
-    toast(like ? "Liked, and Rudder will keep videos like this" : "Disliked, and Rudder will show you less like this");
+    toast(like ? "More like this" : "Less like this");
     browser.runtime.sendMessage({ type: "rudder-feedback", id, like, title: meta ? text(meta.querySelector("h1")) : null, channel: meta ? text(meta.querySelector("ytd-channel-name a")) : null }).catch(() => {});
     if (!like && short) setTimeout(() => { const h = host(); if (h && shortId() === id) { h.setAttribute("gemma-verdict", "block"); skip(h, id, false); } }, 300); // after YouTube has taken the dislike
   }, true);
@@ -254,7 +248,7 @@
         document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
         if (!like && target.tile) { target.tile.setAttribute("gemma-verdict", "block"); settleShelves(); }
         if (!like && target.short && host() && shortId() === target.id) { host().setAttribute("gemma-verdict", "block"); skip(host(), target.id, false); } // a short you 👎: on to the next
-        toast(like ? "Rudder will keep videos like this" : "Rudder will show you less like this");
+        toast(like ? "More like this" : "Less like this");
         browser.runtime.sendMessage({ type: "rudder-feedback", id: target.id, like, title: target.title, channel: target.channel }).catch(() => {});
       };
       for (const type of ["click", "mousedown", "mouseup", "pointerdown", "pointerup", "tap"]) item.addEventListener(type, act, true);
