@@ -24,7 +24,6 @@ let yt = { enabled: true, filters: YOUTUBE_FILTERS.map((sentence) => ({ sentence
 
 const ports = new Set();
 const send = (msg) => ports.forEach((p) => p.postMessage(msg));
-const STATUS = "Checks run on your processor: keywords, thumbnail text and your 👍 / 👎.";
 
 // each video: its thumbnail's words through every filter's keywords, and its fingerprint for your algorithm
 const textOf = (v) => (v.channel ? `${v.title} — ${v.channel}` : v.title);
@@ -91,6 +90,5 @@ browser.runtime.onConnect.addListener((port) => {
     if (msg.type === "rudder-like") feedback({ id: msg.id, like: true }).then(() => port.postMessage(ytState())).catch(() => {});
     if (msg.type === "rudder-forget") { forget(); port.postMessage(ytState()); }
   });
-  port.postMessage({ type: "status", text: STATUS });
   port.postMessage(ytState());
 });

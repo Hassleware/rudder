@@ -5,60 +5,41 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Rudder</title>
 <style>
-  :root {
-    color-scheme: light dark;
-    --bg: #ffffff; --fg: #15202b; --muted: #5b6875; --line: #e3e8ee; --field: #f4f7fa; --accent: #2d8fd0; --on-accent: #ffffff; --danger: #c0392b;
-    font: 14px/1.4 system-ui, sans-serif;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg: #14191f; --fg: #e8eef4; --muted: #95a3b1; --line: #2a333d; --field: #1d242c; --accent: #5bb8f0; --on-accent: #0b1620; --danger: #ff6b5b; }
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; width: 380px; max-height: 600px; overflow-y: auto; background: var(--bg); color: var(--fg); padding: 16px; }
-  .wordmark { display: block; width: 100%; height: auto; color: var(--fg); }
-  #status { margin: 10px 0 0; font-size: 12px; color: var(--muted); min-height: 1.4em; }
-  section { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
-  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
-  .row { display: flex; align-items: center; gap: 10px; }
-  .row .grow { flex: 1; }
-  .switch { position: relative; width: 40px; height: 22px; flex: none; }
-  .switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
-  .switch span { position: absolute; inset: 0; border-radius: 11px; background: var(--line); transition: background .15s; pointer-events: none; }
-  .switch span::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .15s; }
-  .switch input:checked + span { background: var(--accent); }
-  .switch input:checked + span::after { transform: translateX(18px); }
-  .switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
-  #stats { font-size: 12px; color: var(--muted); margin-top: 6px; }
-  .hint { font-size: 12px; color: var(--muted); margin: 0 0 8px; }
-  #list { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 6px; }
-  #list li { display: flex; align-items: center; gap: 6px; }
-  input[type=text], #list input { font: inherit; color: var(--fg); background: var(--field); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; min-width: 0; }
-  #list input { flex: 1; }
-  input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-  .count { font-size: 11px; color: var(--muted); white-space: nowrap; min-width: 58px; text-align: right; }
-  button { font: inherit; color: var(--fg); background: var(--field); border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
-  button:hover { border-color: var(--accent); }
-  button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-  #learned { font-size: 12px; color: var(--muted); margin: 0 0 8px; }
-  #recent { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 190px; overflow-y: auto; }
-  #recent li { display: flex; align-items: center; gap: 8px; }
-  #recent .what { flex: 1; min-width: 0; }
-  #recent .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #recent .why { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #recent button { flex: none; padding: 3px 8px; font-size: 12px; display: inline-flex; align-items: center; gap: 4px; }
-  .link { background: none; border: none; color: var(--muted); padding: 0; font-size: 12px; text-decoration: underline; cursor: pointer; margin-top: 8px; }
-  .del { width: 28px; height: 28px; padding: 0; line-height: 1; font-size: 16px; color: var(--muted); }
-  .del:hover { color: var(--danger); border-color: var(--danger); }
-  #add { display: flex; gap: 6px; }
-  #add input { flex: 1; }
-  body.off #list, body.off #add { opacity: .55; }
-  .where { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
+  :root { --paper: #f2ede1; --ink: #111; --faint: #d9d2c1; font: 12px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; color: var(--ink); }
+  * { box-sizing: border-box; border-radius: 0 !important; }
+  html, body { margin: 0; background: var(--paper); }
+  body { width: 380px; }
+  main { padding: 14px; border: 2px solid var(--ink); }
+  .wordmark { display: block; width: 100%; height: auto; color: var(--ink); margin-bottom: 14px; }
+  h2 { font: inherit; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; margin: 16px 0 6px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); border: 2px solid var(--ink); }
+  .cell { padding: 8px; border-right: 2px solid var(--ink); border-bottom: 2px solid var(--ink); }
+  .cell:nth-child(3n) { border-right: 0; }
+  .cell:nth-last-child(-n+3) { border-bottom: 0; }
+  .num { font-size: 20px; font-weight: 700; line-height: 1.1; }
+  .lbl { text-transform: uppercase; letter-spacing: .06em; font-size: 10px; }
+  ul { list-style: none; margin: 0; padding: 0; border: 2px solid var(--ink); }
+  li { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; padding: 5px 8px; border-bottom: 1px solid var(--ink); position: relative; }
+  li:last-child { border-bottom: 0; }
+  li > :not(.bar) { position: relative; } /* above the bar */
+  li .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  li .bar { position: absolute; inset: 0 auto 0 0; background: var(--faint); }
+  li .n { font-weight: 700; }
+  #recent li, #channels li { grid-template-columns: 1fr; gap: 0; }
+  #recent .why { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .empty { padding: 5px 8px; }
+  button, input { font: inherit; color: var(--ink); background: var(--paper); border: 2px solid var(--ink); }
+  button { cursor: pointer; padding: 0 6px; line-height: 18px; font-weight: 700; }
+  button:hover, button:focus-visible { background: var(--ink); color: var(--paper); outline: 0; }
+  #add { display: flex; margin-top: 6px; }
+  #add input { flex: 1; min-width: 0; padding: 4px 6px; border-right: 0; }
+  #add input:focus { outline: 0; background: #fff; }
+  #add button { padding: 0 10px; }
 </style>
 </head>
 <body>
-  <header>
-    <svg class="wordmark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8070 1861" fill="currentColor" role="img" aria-label="RUDDER">
-<title>RUDDER</title>
+<main>
+<svg class="wordmark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8070 1861" fill="currentColor" role="img" aria-label="RUDDER">
 <path d="M135 1840.5882352941176H440V1308.5882352941176H680L964 1840.5882352941176H1302L985 1259.5882352941176C1155 1186.5882352941176 1249 1039.5882352941176 1249 835.5882352941176C1249 542.5882352941176 1055 350.58823529411757 716 350.58823529411757H135ZM440 1061.5882352941176V602.5882352941176H659C846 602.5882352941176 934 685.5882352941176 934 835.5882352941176C934 984.5882352941176 846 1061.5882352941176 660 1061.5882352941176Z"/>
 <path d="M2095 1861.5882352941176C2463 1861.5882352941176 2710 1643.5882352941176 2710 1317.5882352941176V350.58823529411757H2404V1292.5882352941176C2404 1466.5882352941176 2282 1591.5882352941176 2095 1591.5882352941176C1908 1591.5882352941176 1785 1466.5882352941176 1785 1292.5882352941176V350.58823529411757H1480V1317.5882352941176C1480 1643.5882352941176 1724 1861.5882352941176 2095 1861.5882352941176Z"/>
 <g fill="#5BB8F0" transform="translate(2757.9,29.2) scale(14.6078)">
@@ -70,36 +51,27 @@
 <path d="M5616.254901960783 1840.5882352941176H6615.254901960783V1587.5882352941176H5921.254901960783V1212.5882352941176H6561.254901960783V963.5882352941176H5921.254901960783V603.5882352941176H6613.254901960783V350.58823529411757H5616.254901960783Z"/>
 <path d="M6860.254901960783 1840.5882352941176H7165.254901960783V1308.5882352941176H7405.254901960783L7689.254901960783 1840.5882352941176H8027.254901960783L7710.254901960783 1259.5882352941176C7880.254901960783 1186.5882352941176 7974.254901960783 1039.5882352941176 7974.254901960783 835.5882352941176C7974.254901960783 542.5882352941176 7780.254901960783 350.58823529411757 7441.254901960783 350.58823529411757H6860.254901960783ZM7165.254901960783 1061.5882352941176V602.5882352941176H7384.254901960783C7571.254901960783 602.5882352941176 7659.254901960783 685.5882352941176 7659.254901960783 835.5882352941176C7659.254901960783 984.5882352941176 7571.254901960783 1061.5882352941176 7385.254901960783 1061.5882352941176Z"/>
 </svg>
-    <div id="status" role="status"></div>
-  </header>
 
-  <section>
-    <div class="row">
-      <div class="grow"><h2 style="margin:0">YouTube filtering</h2></div>
-      <label class="switch" title="Turn filtering on or off"><input type="checkbox" id="enabled" aria-label="Filter YouTube"><span></span></label>
-    </div>
-    <div id="stats"></div>
-    <p class="where">Home, Subscriptions, search, channel pages, related videos, Shorts and autoplay. Strict: a video stays hidden until checked, and anything in doubt stays hidden. The player's end-screen suggestions are always hidden. The video you chose to watch is never hidden.</p>
-  </section>
+  <div class="grid">
+    <div class="cell"><div class="num" id="checked">0</div><div class="lbl">checked</div></div>
+    <div class="cell"><div class="num" id="hidden">0</div><div class="lbl">hidden</div></div>
+    <div class="cell"><div class="num" id="rate">0%</div><div class="lbl">hidden rate</div></div>
+    <div class="cell"><div class="num" id="likes">0</div><div class="lbl">liked</div></div>
+    <div class="cell"><div class="num" id="dislikes">0</div><div class="lbl">disliked</div></div>
+    <div class="cell"><div class="num" id="model">off</div><div class="lbl">learned model</div></div>
+  </div>
 
-  <section>
-    <h2>Your algorithm</h2>
-    <p id="learned"></p>
-    <p class="hint">Teach Rudder with "Rudder: more like this / less like this" in any video's ⋮ menu, including the video or short you're watching. Recently hidden, in case one was fine:</p>
-    <ul id="recent"></ul>
-    <button class="link" id="forget" title="Forget every like and dislike you gave">Forget everything it learned</button>
-  </section>
+  <h2>Filters</h2>
+  <ul id="list"></ul>
+  <form id="add"><input type="text" id="new" maxlength="200" aria-label="New filter" autocomplete="off"><button aria-label="Add filter">+</button></form>
 
-  <section>
-    <h2>Filters</h2>
-    <p class="hint">Topics to hide, separated by commas. A video is hidden if its title, channel or thumbnail text uses a filter's words or words closely tied to them (e.g. "video games" also covers Minecraft, Deadlock, speedruns).</p>
-    <ul id="list"></ul>
-    <form id="add">
-      <input type="text" id="new" maxlength="200" placeholder="e.g. crypto, bitcoin" aria-label="New filter">
-      <button class="primary">Add</button>
-    </form>
-  </section>
+  <h2>Channels hidden</h2>
+  <ul id="channels"></ul>
 
+  <h2>Recently hidden</h2>
+  <ul id="recent"></ul>
+
+</main>
   <script src="popup.js"></script>
 </body>
 </html>
