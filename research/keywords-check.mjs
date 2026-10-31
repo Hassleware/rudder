@@ -1,0 +1,115 @@
+// CPU-only check of Rudder's keyword layer against the user's real filter list (from the popup, 2026-10-31).
+// Run: node research/keywords-check.mjs
+import { keywordMatch } from "../extension/youtube/keywords.js";
+
+// the merged default list (43 → 11); the old list is kept below to check nothing it caught is lost
+const FILTERS = ["anything about video games", "anything about AI", "anything about tech companies, coding or cyber security", "anything about jobs, stocks, the rich or the poor", "anything about news, war or death", "anything violent, angry, mean or offensive", "anything depressing, doom inducing, mood ruining or about the future", "anything motivational", "anything about a last this or last that", "vlogbrothers", "cf3", "anything about politics, elections or politicians", "anything about crime, scams or true crime", "anything about disasters, accidents or emergencies", "anything about illness, disease or health scares", "anything about drama, controversy or someone being exposed", "anything rage bait or clickbait", "anything scary, horror or disturbing", "anything about dieting, weight loss or body image", "anything about conspiracies or culture wars", "anything about animal cruelty or suffering", "anything about breakups, cheating or toxic relationships", "anything about the climate or pollution", "anything about alcohol or drinking", "anything about drugs, cigarettes or vaping", "anything about gambling, betting or casinos", "anything sexual, suggestive or adult", "anything about binge eating, junk food or food challenges", "anything about shopping, spending or hauls", "anything about self-harm, suicide or eating disorders", "anything about addiction, relapse or withdrawal"];
+const OLD = ["anything about gaming", "anything about AI", "anything implying violence", "Deadlock", "League of legends", "cf3", "openai", "ai", "anthropic", "gemini", "deepseek", "benchmarks", "models", "jobs", "employment", "unemployment", "news", "hero shooters", "mean", "anything angry", "anything depressing", "anything doom inducing", "anything about video games", "software engineer", "anything about coding", "anything about a last this, or last that,", "vlogbrothers", "anything about overwatch", "anything about death", "anything about war", "anything about Stocks", "anything news related", "anything video game music related", "anything about valves game deadlock", "anything creepishly motivational or just", "anything about motivation or putting", "anything about poor people or rich people", "anything that can be deemed as offensive", "anything that can ruin my mood", "anything about the future", "anything from a tech company", "anything cyber secuirty related", "anything hack related"];
+const hitWith = (list, title, channel) => { for (const f of list) { const m = keywordMatch(f, title, channel); if (m) return `${f} ← ${m}`; } return null; };
+const hit = (title, channel) => { for (const f of FILTERS) { const m = keywordMatch(f, title, channel); if (m) return `${f} ← ${m}`; } return null; };
+
+const MUST_HIDE = [
+  ["Star Trek and X-Men actor Sir Patrick Stewart dies aged 86", "ITV News"],
+  ["Sir Patrick Stewart has died", "BBC News"],
+  ["Tributes paid to legendary actor", "Sky News"],
+  ["Minecraft Beaten In 53 Seconds [FWR]", "HanabiYaki"],
+  ["I Spent 100 Days Speedrunning Minecraft", "Ludwig"],
+  ["Overwatch 2 Season 20 tier list", "KarQ"],
+  ["The Secret Infernus Build", "2Retry"], // Deadlock hero, no game name: keyword layer can't know → model's job
+  ["OpenAI just released GPT-6", "Fireship"],
+  ["Apple Lost the AI Race", "Marques Brownlee"],
+  ["Massive layoffs hit the tech industry", "CNBC"],
+  ["Stock market crash explained", "Graham Stephan"],
+  ["The best hero shooter nobody plays", "Gameranx"],
+  ["Ukraine war update: missiles strike Kyiv", "DW"],
+  ["Man stabbed outside nightclub", "Local 12"],
+  ["Why everything is going to collapse", "Kurzgesagt"],
+  ["League of Legends Worlds 2026 final", "LoL Esports"],
+  ["How hackers stole $100 million", "Cyberspace"],
+  ["Billionaire buys his 5th yacht", "Insider"],
+  ["The Last of Us Part III announced", "PlayStation"],
+  ["Hank answers your questions", "vlogbrothers"],
+  ["Is Marvel Rivals the best hero shooter?", "Gameranx"],
+  ["New GPU benchmarks are in", "Hardware Unboxed"],
+  ["Day in the life of a software engineer", "Coding Jesus"],
+  ["The biggest cyber security breach of 2026", "Seytonic"],
+  ["Why the rich keep getting richer", "Economics Explained"],
+  ["What the world will look like in the future", "Futurism"],
+  ["Wake up at 5am: the grindset that changed my life", "Motivation Hub"],
+  ["Deadlock patch notes explained", "Mikaels"],
+  ["Ratchet & Clank OST - Metropolis", "LombaxWhisperer"],
+  ["Death Stranding 2 review", "IGN"],
+  ["Trump wins the election", "Some Channel"],
+  ["Starmer budget explained", "Politics Joe"],
+  ["Man arrested after robbery spree", "Local Crime Watch"],
+  ["I got scammed out of 5,000 pounds", "Personal Finance"],
+  ["The serial killer nobody caught", "True Crime Daily"],
+  ["Massive earthquake hits Japan", "Weather Channel"],
+  ["My cancer diagnosis at 27", "Vlog"],
+  ["YouTuber EXPOSED for lying to fans", "Drama Alert"],
+  ["This is the most SHOCKING video on YouTube", "Clicky"],
+  ["The creepiest haunted house in England", "Ghost Hunters"],
+  ["How I lost 30 pounds on Ozempic", "Fit Life"],
+  ["Flat earth debate gets heated", "Talk Show"],
+  ["Abandoned dog found starving in the snow", "Animal Rescue"],
+  ["She cheated on me with my best friend", "Storytime"],
+  ["Global warming is speeding up", "Science Now"],
+  ["Terrorist attack in city centre", "Reporter"],
+  ["Trying every beer in Germany", "Beer Tour"],
+  ["Getting drunk in Vegas", "Travel Bros"],
+  ["Smoking weed for the first time", "Reacts"],
+  ["I quit vaping for 30 days", "Health Vlog"],
+  ["10000 dollar casino challenge", "High Roller"],
+  ["Sports betting tips for the weekend", "Bet Smart"],
+  ["CS2 case opening gone crazy", "Skins"],
+  ["OnlyFans model reacts", "Podcast"],
+  ["10,000 calorie challenge", "Eat Big"],
+  ["McDonalds mukbang", "Food Vlog"],
+  ["Huge Shein haul", "Style"],
+  ["Black Friday deals you can't miss", "Deals Daily"],
+  ["My anorexia recovery story", "Story"],
+  ["Day 30 sober: what I learned", "Sober Life"],
+  ["Relapse after 2 years", "Recovery Vlog"],
+  ["Nicotine pouches explained", "Explained"],
+  ["Living with anorexia", "Vlog"],
+  ["KDA FIRESTARTER dance cover", "WINGS club"],
+  ["JSRF Jet Set Radio Future SEGA original tracks", "Mix"],
+  ["How I have to stretch my burns", "Shorts"],
+  ["What bulimia did to my body", "Story"],
+];
+const SHOULD_SHOW = [
+  ["How to bake sourdough bread at home", "Joshua Weissman"],
+  ["Cute cats compilation 2026", "The Pet Collective"],
+  ["Learn 5 easy guitar chords", "Andy Guitar"],
+  ["Restoring a rusty 1960s bicycle", "Restore It"],
+  ["I built a treehouse with my kids", "Mark Rober"],
+  ["Calm piano for studying", "Soothing Relaxation"],
+  ["Hiking the Scottish Highlands in autumn", "Kraig Adams"],
+  ["Top 10 pasta recipes for beginners", "Pasta Grannies"],
+  ["Lofi beats to relax to", "Lofi Girl"],
+  ["20 minute beginner yoga", "Yoga With Adriene"],
+  ["Building a walnut dining table", "Woodworking Basics"],
+  ["Two weeks in Japan: travel vlog", "Abroad in Japan"],
+  ["How to draw a cute fox", "Art for Kids Hub"],
+  ["Chess openings every beginner should know", "GothamChess"],
+  ["Premier League goals of the month", "Premier League"],
+  ["Watercolour painting for beginners", "Paint With Me"],
+  ["Making the perfect cup of coffee", "James Hoffmann"],
+  ["Ocean sounds for sleep", "Nature Sounds"],
+  ["Kittens playing with yarn", "Cute Pets"],
+  ["Origami crane step by step", "Paper Craft"],
+  ["Smoked brisket recipe", "BBQ Pit"],
+  ["Pull up bar workout for beginners", "Calisthenics"],
+  ["Healthy salad in 10 minutes", "Fit Kitchen"],
+  ["Morning stretching routine", "Stretch"],
+  ["How to fix a leaky tap", "DIY Home"],
+  ["Bird watching in the spring", "Nature"],
+  ["Learning sign language basics", "Sign School"],
+];
+
+let bad = 0;
+for (const [t, c] of MUST_HIDE) { const h = hit(t, c); console.log(`${h ? "hide" : "MISS"}  ${t} — ${c}${h ? "   [" + h + "]" : ""}`); if (!h && !t.includes("Infernus")) bad++; }
+console.log("");
+for (const [t, c] of SHOULD_SHOW) { const h = hit(t, c); console.log(`${h ? "OVER" : "show"}  ${t} — ${c}${h ? "   [" + h + "]" : ""}`); if (h) bad++; }
+console.log(bad ? `\n${bad} unexpected` : "\nCHECK OK");
+process.exitCode = bad ? 1 : 0;
