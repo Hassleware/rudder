@@ -136,8 +136,23 @@
     } else if (v === "block") {
       if (!cameFrom.has(id)) cameFrom.set(id, lastShown);
       const up = cameFrom.get(id) !== lastShown; // back here from below: keep going up
-      h.querySelector(`#navigation-button-${up ? "up" : "down"} button`)?.click();
+      skip(h, id, up);
     } else pauseIfHidden();
+  }
+  // Skip a rejected short: jump straight to the nearest short that way not already known to be rejected, instantly (no
+  // animation for anything to slide past in, no landing on known-bad ones); YouTube's own button if none is loaded yet.
+  let skippedAt = 0;
+  function skip(h, id, up) {
+    if (Date.now() - skippedAt < 600) return; // one skip at a time
+    skippedAt = Date.now();
+    const slots = [...h.querySelectorAll(".reel-video-in-sequence-new")], step = up ? -1 : 1;
+    const at = slots.findIndex((x) => x.getAttribute("gemma-id") === id);
+    for (let k = at + step; at >= 0 && k >= 0 && slots[k]; k += step) {
+      if (slots[k].getAttribute("gemma-verdict") === "block") continue;
+      if (slots[k].getAttribute("gemma-id")) { slots[k].scrollIntoView({ block: "start", behavior: "instant" }); return; }
+      break;
+    }
+    h.querySelector(`#navigation-button-${up ? "up" : "down"} button`)?.click();
   }
 
   // Autoplay: when a video ends, YouTube counts down to the next one. It may only start if that video has passed;
