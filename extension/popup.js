@@ -7,13 +7,38 @@ let filters = [];
 
 // ---- filters ----
 const save = (list) => port.postMessage({ type: "set-filters", filters: list });
+function renderLearning(state) {
+  const l = state.stats.learning ?? { likes: 0, dislikes: 0 };
+  $("learned").textContent = !l.likes && !l.dislikes ? "Nothing yet. Your 👍 and 👎 make Rudder yours."
+    : `Learned from ${l.likes} 👍 and ${l.dislikes} 👎${l.learning ? ", and it now hides videos like the ones you disliked" : " (it starts predicting after 3 👎 and a few videos you were fine with)"}${l.channels?.length ? ` · channels hidden: ${l.channels.slice(0, 3).join(", ")}${l.channels.length > 3 ? "…" : ""}` : ""}.`;
+  if (document.activeElement?.closest?.("#recent")) return;
+  $("recent").replaceChildren(...(state.recent ?? []).slice(0, 25).map((v) => {
+    const li = document.createElement("li"), what = document.createElement("div"), t = document.createElement("div"), why = document.createElement("div"), up = document.createElement("button");
+    what.className = "what"; t.className = "t"; why.className = "why"; li.dataset.id = v.id;
+    t.textContent = v.title; t.title = `${v.title}${v.channel ? " — " + v.channel : ""}`;
+    why.textContent = v.why || "hidden";
+    Object.assign(up, { textContent: "👍 Fine", title: "It was fine: show it, and learn from it" });
+    up.addEventListener("click", () => { up.disabled = true; port.postMessage({ type: "rudder-like", id: v.id }); });
+    what.append(t, why); li.append(what, up);
+    return li;
+  }));
+}
+// popups can't show confirm(): a second click within 4 s confirms
+let forgetArmed = 0;
+$("forget").addEventListener("click", () => {
+  if (Date.now() - forgetArmed < 4000) { forgetArmed = 0; $("forget").textContent = "Forgotten"; port.postMessage({ type: "rudder-forget" }); return; }
+  forgetArmed = Date.now();
+  $("forget").textContent = "Click again to forget every 👍 and 👎";
+  setTimeout(() => { if (forgetArmed && Date.now() - forgetArmed >= 4000) $("forget").textContent = "Forget everything it learned"; }, 4100);
+});
 function renderFilters(state) {
+  renderLearning(state);
   $("enabled").checked = state.enabled;
   document.body.classList.toggle("off", !state.enabled);
   const s = state.stats;
   $("stats").textContent = !state.filters.length ? "Add a filter below to start hiding videos."
     : !state.enabled ? "Filtering is off: YouTube shows everything."
-    : `${s.checked} video${s.checked === 1 ? "" : "s"} checked this session · ${s.hidden} hidden`;
+    : `${s.checked} video${s.checked === 1 ? "" : "s"} checked this session · ${s.hidden} hidden${s.waiting ? ` · checking ${s.waiting} more…` : ""}`;
   // don't rebuild the list under the user's cursor; just refresh the counts
   const same = state.filters.length === filters.length && state.filters.every((f, i) => f === filters[i]);
   filters = state.filters;

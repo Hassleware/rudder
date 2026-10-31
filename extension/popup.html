@@ -41,6 +41,14 @@
   button { font: inherit; color: var(--fg); background: var(--field); border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
   button:hover { border-color: var(--accent); }
   button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  #learned { font-size: 12px; color: var(--muted); margin: 0 0 8px; }
+  #recent { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 190px; overflow-y: auto; }
+  #recent li { display: flex; align-items: center; gap: 8px; }
+  #recent .what { flex: 1; min-width: 0; }
+  #recent .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #recent .why { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #recent button { flex: none; padding: 3px 8px; font-size: 12px; }
+  .link { background: none; border: none; color: var(--muted); padding: 0; font-size: 12px; text-decoration: underline; cursor: pointer; margin-top: 8px; }
   .del { width: 28px; height: 28px; padding: 0; line-height: 1; font-size: 16px; color: var(--muted); }
   .del:hover { color: var(--danger); border-color: var(--danger); }
   #add { display: flex; gap: 6px; }
@@ -79,6 +87,14 @@
     </div>
     <div id="stats"></div>
     <p class="where">Home, Subscriptions, search, channel pages, related videos, Shorts and autoplay. Strict: a video stays hidden until checked, and anything in doubt stays hidden. The player's end-screen suggestions are always hidden. The video you chose to watch is never hidden.</p>
+  </section>
+
+  <section>
+    <h2>Your algorithm</h2>
+    <p id="learned"></p>
+    <p class="hint">Teach Rudder with 👍 / 👎 in any video's ⋮ menu. Recently hidden, in case one was fine:</p>
+    <ul id="recent"></ul>
+    <button class="link" id="forget" title="Forget every 👍 and 👎 you gave">Forget everything it learned</button>
   </section>
 
   <section>
