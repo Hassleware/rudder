@@ -2,8 +2,10 @@
 // The model downloads once (~2.9 GB) into the extension's own storage; after that it loads from disk.
 import "./gpu-fixes.js";
 import { CreateMLCEngine, hasModelInCache } from "./vendor/web-llm.js";
+import { encodeThumbnail, IMAGE_TOKENS } from "./vision.js";
+import { keywordMatch } from "./youtube/keywords.js";
 import { videos as youtubeVideos, setJudge as setYoutubeJudge, setFilters as setYoutubeFilters, setEnabled as setYoutubeEnabled, stats as youtubeStats } from "./youtube/intercept.js";
-import { TAP, PROBE, mean, makeProbe, score, smooth, top3, sentences, cascade, CASCADE, CASCADE_TITLES } from "./probe.js";
+import { TAP, PROBE, mean, makeProbe, score, smooth, top3, sentences, cascade, CASCADE, CASCADE_TITLES, CASCADE_STRICT } from "./probe.js";
 
 const MODEL_ID = "gemma-4-E2B-it-q4f16_1-MLC";
 const IDLE_MS = 10 * 60 * 1000; // free the VRAM after 10 minutes without use
@@ -386,9 +388,17 @@ window.youtubeVideos = youtubeVideos;
 // asked), tuned by hand-labelling 129 home-feed videos (2026-10-30): AI 2.5 (judge runs 30% → 11%, no misses); gaming
 // stays 1.5 (its probe is weak on short titles: 2.0 already misses 4 of 42). A new filter gets 1.5. The user's list is
 // set in the popup and kept in extension storage ("yt-settings"); these are the first-run defaults.
-const YOUTUBE_FILTERS = [{ sentence: "anything about gaming", gate: 1.5 }, { sentence: "anything about AI", gate: 2.5 }];
-const NEW_GATE = 1.5;
-let yt = { enabled: true, filters: YOUTUBE_FILTERS };
+// The default list: the user's own 43 filters (2026-10-31) merged into 11 that cover the same ground, plus 12 common upsetting topics (each filter's
+// words and youtube/keywords.js do the rest; checked with research/keywords-check.mjs). Strict mode gates every filter
+// at 1.0 anyway (CASCADE_STRICT).
+const YOUTUBE_FILTERS = ["anything about video games", "anything about AI", "anything about tech companies, coding or cyber security", "anything about jobs, stocks, the rich or the poor", "anything about news, war or death", "anything violent, angry, mean or offensive", "anything depressing, doom inducing, mood ruining or about the future", "anything motivational", "anything about a last this or last that", "vlogbrothers", "cf3",
+  // grown on the user's request ("so social media can never make me feel upset again"): common upsetting topics
+  "anything about politics, elections or politicians", "anything about crime, scams or true crime", "anything about disasters, accidents or emergencies", "anything about illness, disease or health scares", "anything about drama, controversy or someone being exposed", "anything rage bait or clickbait", "anything scary, horror or disturbing", "anything about dieting, weight loss or body image", "anything about conspiracies or culture wars", "anything about animal cruelty or suffering", "anything about breakups, cheating or toxic relationships", "anything about the climate or pollution",
+  // relapse triggers (the user's request: "anything that could possibly cause an addictive person to relapse")
+  "anything about alcohol or drinking", "anything about drugs, cigarettes or vaping", "anything about gambling, betting or casinos", "anything sexual, suggestive or adult", "anything about binge eating, junk food or food challenges", "anything about shopping, spending or hauls", "anything about self-harm, suicide or eating disorders", "anything about addiction, relapse or withdrawal"].map((sentence) => ({ sentence, gate: 1 }));
+const NEW_GATE = 1;
+const SETTINGS_V = 4; // saved settings older than this are replaced by the defaults once
+let yt = { enabled: true, filters: YOUTUBE_FILTERS, v: SETTINGS_V };
 
 // Layer 4: batches. WebLLM's memory (KV cache) holds one sequence, so the filter makes its own with room for 16, using
 // the model's own create_kv_cache, and runs many texts through the model in ONE GPU pass, each in its own sequence (so
@@ -417,22 +427,65 @@ function packPasses(seqs) {
   if (cur.length) out.push(cur);
   return out;
 }
-// one GPU pass: each sequence into its own slot (0, 1, …) of the filter's memory, cleared first
-function multiPrefill(p, kv, seqs) {
-  p.fclearKVCaches(kv);
-  seqs.forEach((_, k) => p.fKVCacheAddSequence(kv, p.tvm.scalar(k, "int64")));
-  const all = seqs.flat(), size = p.prefillChunkSize;
+// A sequence is { ids, img? { at, rows } }: token ids, and optionally a thumbnail's image tokens (vision.js) whose rows
+// replace the embeddings at ids[at …]. prepare() builds every sequence's embeddings on the GPU (a thumbnail costs one
+// small read-back to splice its rows in, so call it before starting the snapshot); run() then reads all of them in ONE
+// GPU pass, each into its own slot (0, 1, …) of the filter's memory, cleared first.
+const { BOI, IMG, EOI } = IMAGE_TOKENS;
+const withImage = (before, image, after) => (image
+  ? { ids: [...before, BOI, ...new Array(image.n).fill(IMG), EOI, ...after], img: { at: before.length + 1, rows: image.rows } }
+  : { ids: [...before, ...after] });
+async function prepare(p, seqs, firstSlot = 0) {
+  const all = seqs.flatMap((s) => s.ids), mod = new Array(all.length).fill(0), imgs = [], size = p.prefillChunkSize;
+  let at = 0;
+  for (const s of seqs) {
+    if (s.img) { imgs.push({ at: at + s.img.at, rows: s.img.rows }); mod.fill(1, at + s.img.at, at + s.img.at + s.img.rows.length / 1536); }
+    at += s.ids.length;
+  }
   p.prefillChunkSize = 512;
-  p.tvm.beginScope();
+  let emb;
   try {
-    const emb = p.getArtifactTextEmbeddings(all), view = emb.view([1, all.length, emb.shape[1]]);
-    const ids = [all, new Array(all.length).fill(0)].map((x) => p.tvm.empty([1, all.length], "int32", p.device).copyFrom(x));
-    p.fKVCacheBeginForward(kv, p.tvm.makeShapeTuple(seqs.map((_, k) => k)), p.tvm.makeShapeTuple(seqs.map((x) => x.length)));
-    try { p.prefill(view, ...ids, kv, p.params); } finally { p.fKVCacheEndForward(kv); }
-  } finally {
+    p.tvm.beginScope();
+    emb = p.tvm.detachFromCurrentScope(p.getArtifactTextEmbeddings(all));
     p.tvm.endScope();
+  } finally {
     p.prefillChunkSize = size;
   }
+  if (imgs.length) { // splice the thumbnails' rows in (f16, like the text embeddings)
+    p.tvm.beginScope();
+    const cpu = p.tvm.detachFromCurrentScope(p.tvm.empty(emb.shape, emb.dtype, p.tvm.cpu()).copyFrom(emb));
+    p.tvm.endScope();
+    await p.device.sync();
+    const bytes = cpu.toRawBytes(), half = new Uint16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2);
+    cpu.dispose();
+    for (const x of imgs) half.set(x.rows, x.at * 1536);
+    p.tvm.beginScope();
+    const gpu = p.tvm.detachFromCurrentScope(p.tvm.empty(emb.shape, emb.dtype, p.device));
+    p.tvm.endScope();
+    gpu.copyFromRawBytes(new Uint8Array(half.buffer, half.byteOffset, half.byteLength));
+    emb.dispose();
+    emb = gpu;
+  }
+  return {
+    run(kv) {
+      if (firstSlot === 0) p.fclearKVCaches(kv);
+      const slots = seqs.map((_, k) => firstSlot + k);
+      slots.forEach((k) => p.fKVCacheAddSequence(kv, p.tvm.scalar(k, "int64")));
+      const size = p.prefillChunkSize;
+      p.prefillChunkSize = 512;
+      p.tvm.beginScope();
+      try {
+        const view = emb.view([1, all.length, emb.shape[1]]);
+        const ids = [all, mod].map((x) => p.tvm.empty([1, all.length], "int32", p.device).copyFrom(x));
+        p.fKVCacheBeginForward(kv, p.tvm.makeShapeTuple(slots), p.tvm.makeShapeTuple(seqs.map((x) => x.ids.length)));
+        try { p.prefill(view, ...ids, kv, p.params); } finally { p.fKVCacheEndForward(kv); }
+      } finally {
+        p.tvm.endScope();
+        p.prefillChunkSize = size;
+        emb.dispose();
+      }
+    },
+  };
 }
 // run fn(p, kv) with the model to ourselves
 async function withFilterModel(fn) {
@@ -449,14 +502,14 @@ async function withFilterModel(fn) {
 // each text's probe-layer states (after the chat-reply prefix, like layerStates), many texts per pass
 async function batchStates(texts) {
   return withFilterModel(async (p, kv) => {
-    const [pre] = (await bench()).templates.content.reply.split("{text}"), tok = p.tokenizer;
-    const head = [p.bosTokenId, ...tok.encode(pre)], seqs = texts.map((t) => [...head, ...tok.encode(t)]), out = [];
-    for (const group of packPasses(seqs)) {
-      const g = group.map((k) => seqs[k]);
+    const [pre] = (await bench()).templates.content.reply.split("{text}"), tok = p.tokenizer, head = [p.bosTokenId, ...tok.encode(pre)];
+    const seqs = texts.map((t) => ({ ids: [...head, ...tok.encode(t)] })), out = [];
+    for (const group of packPasses(seqs.map((x) => x.ids))) {
+      const g = group.map((k) => seqs[k]), job = await prepare(p, g);
       let recs = [];
-      globalThis.gpuSnapshot.start({ only: TAP, run: PROBE.layer + 1, maxSteps: 1, bytes: g.flat().length * 1536 * 4 });
+      globalThis.gpuSnapshot.start({ only: TAP, run: PROBE.layer + 1, maxSteps: 1, bytes: g.reduce((n, x) => n + x.ids.length, 0) * 1536 * 4 });
       try {
-        multiPrefill(p, kv, g);
+        job.run(kv);
         await p.device.sync();
         globalThis.gpuSnapshot.tick();
       } finally {
@@ -466,28 +519,83 @@ async function batchStates(texts) {
       let at = 0;
       for (const k of group) {
         out[k] = [];
-        for (let t = at + head.length; t < at + seqs[k].length; t++) out[k].push(Float32Array.from(recs[0].values.subarray(t * 1536, (t + 1) * 1536)));
-        at += seqs[k].length;
+        for (let t = at + head.length; t < at + seqs[k].ids.length; t++) out[k].push(Float32Array.from(recs[0].values.subarray(t * 1536, (t + 1) * 1536)));
+        at += seqs[k].ids.length;
       }
     }
     return out;
   });
 }
-// the judge for many (filter, text) pairs: every prompt but its last token in one pass, then one single-token step per
-// prompt (each in its own slot) for its Yes/No scores. Same prompt and scores as judge(), just batched.
+// Write each prompt's continuation (greedy, up to max tokens), up to 16 prompts at once: their prompts go into the
+// filter's memory (one or more passes), then every step queues the next token of every unfinished prompt and waits once.
+async function batchGenerate(p, kv, prompts, max) {
+  const tok = p.tokenizer, out = prompts.map(() => []), V = 262144;
+  for (let b = 0, n; b < prompts.length; b += n) {
+    // as many as fit: 16 slots and 2048 tokens of memory (prompt + what it writes)
+    let used = 0;
+    for (n = 0; b + n < prompts.length && n < FILTER_SEQS && used + prompts[b + n].ids.length + max + 1 <= 2048; n++) used += prompts[b + n].ids.length + max + 1;
+    n = Math.max(n, 1);
+    const batch = prompts.slice(b, b + n);
+    for (let k = b; k < b + batch.length; k++) out[k] = [];
+    let slot = 0;
+    for (const group of packPasses(batch.map((x) => x.ids.slice(0, -1)))) {
+      const job = await prepare(p, group.map((k) => ({ ...batch[k], ids: batch[k].ids.slice(0, -1) })), slot);
+      job.run(kv);
+      slot += group.length;
+    }
+    const next = batch.map((x) => x.ids.at(-1));
+    let live = batch.map((_, k) => k);
+    for (let step = 0; step <= max && live.length; step++) {
+      const scores = await stepAll(p, kv, live, live.map((k) => next[k]));
+      const stillLive = [];
+      live.forEach((k, r) => {
+        let best = 0;
+        const a = scores[r];
+        for (let i = 1; i < V; i++) if (a[i] > a[best]) best = i;
+        if (best === 106 || best === 1 || step === max) return; // <turn|>, <eos> or long enough
+        out[b + k].push(best);
+        next[k] = best;
+        stillLive.push(k);
+      });
+      live = stillLive;
+    }
+  }
+  return out.map((ids) => tok.decode(Int32Array.from(ids)).replace(/\*\*/g, "").replace(/\s+/g, " ").trim());
+}
+// one token for each of the given slots → each slot's scores: one call per slot, all queued, then one wait. (One call
+// for all slots through the prompt reader was tried: the runtime aborts with exit(1).)
+async function stepAll(p, kv, slots, tokens) {
+  const cpu = [];
+  slots.forEach((slot, r) => {
+    p.tvm.beginScope();
+    try {
+      const input = p.tvm.empty([1, 1], "int32", p.device).copyFrom([tokens[r]]);
+      p.fKVCacheBeginForward(kv, p.tvm.makeShapeTuple([slot]), p.tvm.makeShapeTuple([1]));
+      try {
+        const logits = p.decoding(input, kv, p.params).get(0);
+        cpu.push(p.tvm.detachFromCurrentScope(p.tvm.empty(logits.shape, logits.dtype, p.tvm.cpu()).copyFrom(logits)));
+      } finally { p.fKVCacheEndForward(kv); }
+    } finally {
+      p.tvm.endScope();
+    }
+  });
+  await p.device.sync();
+  return cpu.map((arr) => { const a = arr.toArray(); arr.dispose(); return a; });
+}
+// the judge for many (filter, text) pairs: Yes/No scores, same prompt as judge(), batched
 async function batchJudge(pairs) {
   return withFilterModel(async (p, kv) => {
     const tok = p.tokenizer, [YES, NO] = YES_NO(tok), out = [];
-    const prompts = pairs.map(({ filter, text }) => [p.bosTokenId, ...tok.encode(`<|turn>user\nYou are a content filter. Filter: "${filter}"\nText: "${text}"\nDoes the text contain anything the filter describes? Answer only Yes or No.<turn|>\n<|turn>model\n`)]);
-    for (const group of packPasses(prompts)) {
-      const g = group.map((k) => prompts[k]);
-      multiPrefill(p, kv, g.map((x) => x.slice(0, -1)));
+    const prompts = pairs.map(({ filter, text }) => ({ ids: [p.bosTokenId, ...tok.encode(`<|turn>user\nYou are a content filter. Filter: "${filter}"\nText: "${text}"\nDoes the text contain anything the filter describes? Answer only Yes or No.<turn|>\n<|turn>model\n`)] }));
+    for (const group of packPasses(prompts.map((x) => x.ids))) {
+      const job = await prepare(p, group.map((k) => ({ ...prompts[k], ids: prompts[k].ids.slice(0, -1) })));
+      job.run(kv);
       // every prompt's last step queued with a copy of its scores to the CPU, then one wait for all of them
       const cpu = [];
       for (const [slot, k] of group.entries()) {
         p.tvm.beginScope();
         try {
-          const input = p.tvm.empty([1, 1], "int32", p.device).copyFrom([prompts[k].at(-1)]);
+          const input = p.tvm.empty([1, 1], "int32", p.device).copyFrom([prompts[k].ids.at(-1)]);
           p.fKVCacheBeginForward(kv, p.tvm.makeShapeTuple([slot]), p.tvm.makeShapeTuple([1]));
           try {
             const logits = p.decoding(input, kv, p.params).get(0);
@@ -507,6 +615,36 @@ async function batchJudge(pairs) {
     return out;
   });
 }
+// Each video's thumbnail, read by Gemma: its vision encoder (GPU, vision.js) turns it into 66 image tokens, and Gemma
+// writes out the text on it and what it shows ("finished my phd and my husband died lol"). That description joins the
+// title for the keyword check, the probe and the judge. (Asking the judge with the image itself in the prompt was
+// tested first: it read the image but still said No to "death" for that thumbnail; the written-out text is reliable.)
+const described = new Map(); // id → description
+let visionError = null;
+const DESCRIBE = 'Copy every word written in this image exactly. Then write "Shows:" and what it shows in at most four words. No other comments.';
+// Gemma's answer without its framing ("Here is the text…", bullets, "Shows:")
+const cleanDescription = (s) => s.replace(/^(here is |here's )?(all )?(the )?text (written )?(in|on) (the|this) image( says)?:?/i, "").replace(/(one short sentence|image description|what the image shows)[^:]*:/gi, " ").replace(/\bshows:/i, " — shows:").replace(/^\s*[*•-]\s*/gm, "").replace(/\s*\*\s*/g, " · ").replace(/\s+/g, " ").replace(/^[\s·—-]+/, "").trim();
+async function describe(videos) {
+  if (visionError) return videos.map((v) => described.get(v.id) ?? null);
+  const todo = videos.filter((v) => v.image && !described.has(v.id));
+  if (todo.length) {
+    try {
+      await withFilterModel(async (p, kv) => {
+        const tok = p.tokenizer, enc = (x) => Array.from(tok.encode(x)), images = [];
+        for (const v of todo) images.push(await encodeThumbnail(v.image));
+        const prompts = images.map((image) => withImage([p.bosTokenId, ...enc("<|turn>user\n")], image, enc(`\n${DESCRIBE}<turn|>\n<|turn>model\n`)));
+        const said = await batchGenerate(p, kv, prompts, 24);
+        todo.forEach((v, i) => described.set(v.id, /copy every word|no other comments/i.test(said[i]) ? "" : cleanDescription(said[i]))); // an echo of the instructions isn't a description
+        while (described.size > 2000) described.delete(described.keys().next().value);
+      });
+    } catch (err) {
+      if (/busy/i.test(err.message)) throw err;
+      visionError = err.message; // ponytail: titles only from then on (this session); the popup could show it
+      console.warn("rudder: thumbnails can't be read, titles only:", err);
+    }
+  }
+  return videos.map((v) => described.get(v.id) ?? null);
+}
 
 // A batch of YouTube videos through the filters: title with the channel attached ("… — channel: IGN"; thumbnails need
 // the vision path, still research). Probe per filter on the title's words: below the filter's gate → clear; top-3
@@ -514,8 +652,17 @@ async function batchJudge(pairs) {
 // (Filter: "anything about gaming" or "anything about AI"), and each unsure filter blocks if its probe peak + w × that
 // margin > t (CASCADE_TITLES). The verdict is per video, so a shared judge answer is enough.
 let youtubeBatch = true; // false or the reason, if batches failed and videos are read one by one
-async function judgeYoutube(videos, fls) {
-  const texts = videos.map((v) => (v.channel ? `${v.title} — channel: ${v.channel}` : v.title));
+// how a filter is put to the model: a bare word or short phrase ("news", "hero shooters") as "anything about news"
+const asked = (s) => (/^anything\b/i.test(s) || s.split(/\s+/).length > 4 ? s : `anything about ${s}`);
+// a one-word filter that isn't a known topic word ("cf3", "vlogbrothers") is a name: only its exact word is matched
+// (youtube/keywords.js). The model has no topic to find for a name; its probe fired on any unusual word, e.g. channel
+// names, and blocked everything.
+const nameOnly = (s) => !/\s/.test(s.trim()) && !/^anything$/i.test(s.trim());
+const GROUP = 12; // filters per judge question: short questions stay well inside the reader's 512 tokens and are easier to answer
+async function judgeYoutube(videos, fls0, rule0 = CASCADE_STRICT) {
+  const names = fls0.filter((fl) => nameOnly(fl.sentence)), fls = fls0.filter((fl) => !nameOnly(fl.sentence));
+  const seen = await describe(videos); // the thumbnail, written out by Gemma
+  const texts = videos.map((v, i) => `${v.title}${v.channel ? ` — channel: ${v.channel}` : ""}${seen[i] ? ` — thumbnail: ${seen[i]}` : ""}`);
   const [pre] = (await bench()).templates.content.reply.split("{text}");
   const batched = async (fast, slow) => {
     if (youtubeBatch === true) {
@@ -526,36 +673,44 @@ async function judgeYoutube(videos, fls) {
   const states = await batched(() => batchStates(texts), async () => { const r = []; for (const t of texts) r.push((await layerStates([pre, t, ""], PROBE.layer)).pieces[1]); return r; });
   const rows = videos.map((_, i) => {
     const verdicts = {}, unsure = [];
+    for (const fl of fls0) { // the keyword check on what the thumbnail says
+      const m = seen[i] && keywordMatch(fl.sentence, seen[i]);
+      if (m) verdicts[fl.sentence] = { blocked: true, verdict: "thumbnail keyword: " + m };
+    }
+    if (Object.values(verdicts).some((x) => x.blocked)) return { verdicts, unsure }; // already hidden: no more checks needed
     for (const fl of fls) {
-      const z = smooth(states[i].map((x) => score(fl.probe, x))), peak = Math.max(...z), best3 = Math.max(...top3(z)), rule = { ...CASCADE_TITLES, gate: fl.gate };
+      const z = smooth(states[i].map((x) => score(fl.probe, x))), peak = Math.max(...z), best3 = Math.max(...top3(z)), rule = { ...rule0, gate: Math.min(rule0.gate, fl.gate ?? rule0.gate) };
       if (peak <= rule.gate) verdicts[fl.sentence] = { blocked: false, verdict: "clear", peak };
       else if (best3 >= rule.certain) verdicts[fl.sentence] = { blocked: true, verdict: "blocked", peak };
       else unsure.push({ fl, peak, rule });
     }
+    for (const fl of names) verdicts[fl.sentence] ??= { blocked: false, verdict: "name: keywords only" };
     return { verdicts, unsure };
   });
-  // layer 3: one judge question per video for all its unsure filters; all videos' questions in one batch
-  const asks = rows.map((r, i) => (r.unsure.length ? { i, filter: r.unsure.map((u) => u.fl.sentence).join('" or "'), text: texts[i] } : null)).filter(Boolean);
+  // layer 3: a video's unsure filters go to the judge in questions of up to 8; all videos' questions in one batch
+  const asks = [];
+  rows.forEach((r, i) => { for (let k = 0; k < r.unsure.length; k += GROUP) { const g = r.unsure.slice(k, k + GROUP); asks.push({ i, g, filter: g.map((u) => asked(u.fl.sentence)).join('" or "'), text: texts[i] }); } });
   const margins = asks.length ? await batched(() => batchJudge(asks), async () => { const m = []; for (const a of asks) m.push(await judge(a.filter, a.text)); return m; }) : [];
   asks.forEach((a, n) => {
-    for (const { fl, peak, rule } of rows[a.i].unsure) {
+    for (const { fl, peak, rule } of a.g) {
       const ensemble = peak + rule.w * margins[n], blocked = ensemble > rule.t;
       rows[a.i].verdicts[fl.sentence] = { blocked, verdict: blocked ? "judge: blocked" : "judge: cleared", peak, margin: margins[n], ensemble };
     }
   });
-  return rows.map((r) => ({ blocked: Object.values(r.verdicts).some((x) => x.blocked), verdicts: r.verdicts, batched: youtubeBatch === true }));
+  return rows.map((r, i) => ({ blocked: Object.values(r.verdicts).some((x) => x.blocked), verdicts: r.verdicts, thumbnail: seen[i], batched: youtubeBatch === true }));
 }
 const builtFilters = new Map(); // sentence → its probe, built once
 async function filtersFor(sentences) {
   const out = [];
   for (const s of sentences) {
-    if (!builtFilters.has(s)) builtFilters.set(s, { ...(await makeFilter(s)), gate: yt.filters.find((f) => f.sentence === s)?.gate ?? NEW_GATE });
+    if (nameOnly(s)) { out.push({ sentence: s }); continue; } // no probe needed
+    if (!builtFilters.has(s)) builtFilters.set(s, { ...(await makeFilter(asked(s))), sentence: s, gate: yt.filters.find((f) => f.sentence === s)?.gate ?? NEW_GATE });
     out.push(builtFilters.get(s));
   }
   return out;
 }
 const youtubeFilters = () => filtersFor(yt.filters.map((f) => f.sentence));
-setYoutubeJudge(async (videos, sentences) => judgeYoutube(videos, await filtersFor(sentences)), JSON.stringify({ rule: CASCADE_TITLES, v: 2 }));
+setYoutubeJudge(async (videos, sentences) => judgeYoutube(videos, await filtersFor(sentences)), JSON.stringify({ rule: CASCADE_STRICT, v: 5 })); // v5: thumbnails read too, so everything is checked again
 const ytState = () => ({ type: "filters", enabled: yt.enabled, filters: yt.filters.map((f) => f.sentence), stats: youtubeStats() });
 function applyYoutube(reset) {
   setYoutubeFilters(yt.filters.map((f) => f.sentence));
@@ -578,7 +733,11 @@ function setYoutubeSettings(msg) {
   applyYoutube(true);
 }
 applyYoutube(false);
-browser.storage.local.get("yt-settings").then((r) => { if (r["yt-settings"]) { yt = r["yt-settings"]; applyYoutube(true); } }).catch(() => {});
+browser.storage.local.get("yt-settings").then((r) => {
+  const saved = r["yt-settings"];
+  if (saved?.v >= SETTINGS_V) { yt = saved; applyYoutube(true); }
+  else browser.storage.local.set({ "yt-settings": yt }).catch(() => {}); // first run, or the old 43-filter list: the merged defaults
+}).catch(() => {});
 // Report only: every video read so far through the given filters, in feed order.
 window.filterYoutube = async (filterSentences) => {
   const fls = [];
