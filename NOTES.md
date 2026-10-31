@@ -167,6 +167,24 @@ Rudder learns what the user wants from two items it adds to every feed video's �
   - CPU per video: DeBERTa base 0.45–0.5 s for all 29 filters (xsmall 0.19 s); on the GPU both should be several times faster (not yet measured).
 - Keyword fixes from the test set: "news" was stemmed to "new" (matched every "New …"), bare "hack(s)" caught life hacks, "recovery" caught yoga, "BBC"/"ITV" caught nature documentaries. Keywords on titles: 73% caught, 6% of harmless wrongly hidden (test).
 
+## Filter hunt on live YouTube (2026-10-31)
+
+Seven runs over the home feed, three watch-page sidebars, four searches and the Shorts viewer (~500 videos each),
+every shown and hidden video read by hand. Fixes, in order of impact:
+- **Hashtags never matched** (`#deadlock`): the `#` stayed on the word. Stripped now.
+- **Error thumbnails**: a size YouTube doesn't have comes back as an error with a grey placeholder; every such video was
+  judged on the same grey picture (all "politics 5.6"). Error responses are skipped (`intercept.js` badImage).
+- **One group Yes hid a video under every filter in the group** (funny animals as "gaming" via "animal cruelty"). A filter
+  the group answer would hide under is now asked again on its own.
+- **Thumbnail bar 4.5 → 7**: between them about half were harmless (Star Wars, football, fries).
+- **Keywords**: harmless phrases removed before matching (`SAFE`: Star Wars, ground beef, ghost costume…); bare words that
+  over-blocked made phrase-only (breaking → breaking news, ranked, burnt); many misses added (Sonic/Crush 40, Toby Fox,
+  Deadlock heroes, League champions, streamers, Zelensky, Big Brother/h3, Breaking Bad, lean, stampede…). Keyword checks
+  now run on every filter each time, so new words apply to videos remembered as cleared.
+- **Judge threshold** tried at −4.5: right as often as wrong between −4.5 and −8, so it stays −8 (strict wins ties).
+Left to your 👍/👎: drum & bass mixes the judge calls "gaming", Japanese-only titles, creators whose names are common words.
+The hunt's examples are in `research/keywords-check.mjs`.
+
 ## Rules of thumb
 
 - **Measure before you fix.** Count GPU calls and time each program build. Every big win here came from a measurement, not a guess.
