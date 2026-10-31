@@ -33,3 +33,5 @@ ytd-rich-section-renderer[rudder-short],
 ytd-rich-shelf-renderer[rudder-expanded] ytd-rich-item-renderer[rudder-over] {
   display: none !important;
 }
+/* YouTube's like / dislike on the video you're watching wear Rudder's rudders (feed.js decorateThumbs); dimmer until pressed */
+button[rudder-thumb]:not([aria-pressed="true"]) .rudder-svg { opacity: .7; }

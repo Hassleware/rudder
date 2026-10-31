@@ -205,6 +205,31 @@
     document.body.append(t);
     setTimeout(() => { t.style.opacity = "0"; setTimeout(() => t.remove(), 400); }, 2600);
   }
+  // On the video or short you're watching, YouTube's own like / dislike buttons wear Rudder's rudders and teach Rudder
+  // too: one click likes it on YouTube and tells Rudder. Clicking again to undo only undoes it on YouTube.
+  function decorateThumbs() {
+    for (const scope of document.querySelectorAll("ytd-watch-metadata, ytd-shorts")) {
+      for (const [kind, like] of [["like", true], ["dislike", false]]) {
+        for (const btn of scope.querySelectorAll(`${kind}-button-view-model button, #${kind}-button button`)) {
+          const own = [...btn.querySelectorAll("svg")].find((x) => !x.classList.contains("rudder-svg"));
+          if (!own) continue;
+          if (own.style.display !== "none") own.style.display = "none"; // YouTube redraws it on every toggle: hidden again
+          if (!own.parentElement.querySelector(":scope > .rudder-svg")) { const r = svg(like); r.classList.add("rudder-svg"); own.after(r); }
+          btn.setAttribute("rudder-thumb", kind);
+        }
+      }
+    }
+  }
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest?.("button[rudder-thumb]");
+    if (!btn || btn.getAttribute("aria-pressed") === "true") return; // undoing a like / dislike: YouTube only
+    const like = btn.getAttribute("rudder-thumb") === "like", short = !!btn.closest("ytd-shorts");
+    const id = short ? shortId() : new URLSearchParams(location.search).get("v"), meta = btn.closest("ytd-watch-metadata");
+    if (!id) return;
+    toast(like ? "Liked, and Rudder will keep videos like this" : "Disliked, and Rudder will show you less like this");
+    browser.runtime.sendMessage({ type: "rudder-feedback", id, like, title: meta ? text(meta.querySelector("h1")) : null, channel: meta ? text(meta.querySelector("ytd-channel-name a")) : null }).catch(() => {});
+    if (!like && short) setTimeout(() => { const h = host(); if (h && shortId() === id) { h.setAttribute("gemma-verdict", "block"); skip(h, id, false); } }, 300); // after YouTube has taken the dislike
+  }, true);
   function addMenuItems() {
     if (!menuFor || Date.now() - menuFor.at > 4000 || !menuFor.id) return;
     const drop = [...document.querySelectorAll("tp-yt-iron-dropdown")].find((d) => d.getAttribute("aria-hidden") !== "true" && getComputedStyle(d).display !== "none" && d.getBoundingClientRect().height > 0);
@@ -310,7 +335,7 @@
       if (slot.getAttribute("gemma-id") !== (id ?? "")) { slot.setAttribute("gemma-id", id ?? ""); slot.removeAttribute("gemma-verdict"); }
     }
   };
-  new MutationObserver(() => { gateShort(); regateSlots(); pauseIfHidden(); addMenuItems(); soon(); }).observe(document.documentElement, { childList: true, subtree: true });
+  new MutationObserver(() => { gateShort(); regateSlots(); pauseIfHidden(); addMenuItems(); decorateThumbs(); soon(); }).observe(document.documentElement, { childList: true, subtree: true });
   new MutationObserver((records) => {
     if (records.some((r) => r.target.classList?.contains("reel-video-in-sequence-thumbnail"))) { regateSlots(); soon(); }
   }).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ["style"] });
