@@ -1,32 +1,47 @@
-# Rudder desktop API
+# Rudder gRPC API
 
-Apps on your computer can read and change Rudder's filters, and add their own filtering layer (for example a local LLM).
+Apps on your computer can read and change Rudder's filters, watch its statistics, and add their own filtering layers (for example a local LLM).
 
-Your app runs a WebSocket server on `ws://127.0.0.1:47800`. Rudder connects to it, and retries every 5 seconds while nothing is listening. Messages are JSON. A working example is in `examples/rudder-app.py`.
+```
+your apps  ──gRPC 127.0.0.1:47801──▶  bridge/bridge.py  ◀──WebSocket 127.0.0.1:47800──  Rudder in Firefox
+```
 
-## Rudder → app
+Firefox extensions can't serve gRPC, so a small local bridge sits in between. Rudder connects to it on its own, and retries every 5 seconds while it isn't running.
 
-| Message | When |
+## Run it
+
+```
+cd bridge
+pip install -r requirements.txt
+python bridge.py
+python example_layer.py      # in another terminal: hides titles containing "minecraft"
+```
+
+## Build your own client
+
+The service is defined in `bridge/rudder.proto`. Python stubs are already generated (`rudder_pb2.py`, `rudder_pb2_grpc.py`, `rudder_pb2.pyi`). After changing the proto, regenerate them with:
+
+```
+python -m grpc_tools.protoc -I . --python_out=. --pyi_out=. --grpc_python_out=. rudder.proto
+```
+
+For other languages, generate stubs from the same file with that language's gRPC tools.
+
+| Call | Does |
 |---|---|
-| `{"type": "state", "enabled", "filters": [...], "layer", "stats", "recent"}` | On connect, whenever the filters change, and in reply to `get` |
-| `{"type": "judge", "id": 7, "videos": [{"id", "title", "channel", "image", "imageType"}]}` | Videos for your layer to judge. `image` is the thumbnail as base64 (or `null`) |
-| `{"type": "error", "error": "..."}` | Rudder didn't understand a message |
+| `GetState(Empty) → State` | Filters, layers, statistics and the newest hidden videos |
+| `WatchState(Empty) → stream State` | The state now, then again on every change |
+| `SetFilters(Filters) → State` | Replaces the filter list, the same as editing it in the popup. `UNAVAILABLE` if Firefox isn't connected |
+| `Layer(stream LayerMessage) → stream JudgeRequest` | A filtering layer: send `hello` with a name, then answer each `JudgeRequest` with `verdicts` of the same `id` |
 
-## App → Rudder
+`example_layer.py` shows a complete layer in about 30 lines. Replace its `judge()` function with your own logic.
 
-| Message | Does |
-|---|---|
-| `{"type": "get"}` | Asks for `state` |
-| `{"type": "set-filters", "filters": ["video games", "news, war, death"]}` | Replaces the filter list, the same as editing it in the popup |
-| `{"type": "layer", "name": "my-llm"}` | Adds your layer. Every video is then also sent to you to judge. `"name": null` removes it |
-| `{"type": "verdicts", "id": 7, "results": [{"blocked": true, "why": "about elections"}, ...]}` | Your answer to `judge`: one result per video, in the same order |
+## How layers behave
 
-## How a layer behaves
+- Each video Rudder checks is sent with its title, channel and thumbnail. The thumbnail is the image Firefox already downloaded, so your app never contacts YouTube.
+- Several layers can connect at once. A video is hidden if any layer hides it, and your `why` appears in the popup's recently hidden list.
+- Rudder remembers verdicts per video, so each video is judged once. Connecting or disconnecting a layer changes the combined layer name, so videos are judged again.
+- Strict, like the rest of Rudder: if a layer doesn't answer within 25 seconds, answers with the wrong number of verdicts, or disconnects mid-request, those videos stay hidden for this session.
+- When the last layer disconnects, the feed goes back to Rudder's own filters.
 
-- It works like one more filter, named `app: <name>`. A video hidden by it shows that name and your `why` in the popup's recently hidden list.
-- Verdicts are remembered per video, so each video is sent to you once. To have every video judged again, change the layer's name.
-- Strict, like the rest of Rudder: if you don't answer within 30 seconds, answer with the wrong number of results, or disconnect mid-request, those videos stay hidden for this session.
-- When your app disconnects, the layer is removed and the feed goes back to Rudder's own filters.
-- One app at a time. To run several layers, have one app combine them.
-
-Anything on your computer listening on that port sees the videos Rudder checks. Nothing leaves your computer.
+Both ports listen on this computer only. Any program on it can connect and see the videos Rudder checks. Nothing leaves your computer.

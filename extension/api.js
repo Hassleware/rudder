@@ -1,7 +1,6 @@
-// Rudder's desktop API: apps on this computer can read and change the filters, and add their own filtering layer
-// (e.g. a local LLM). Rudder is the client: it connects to ws://127.0.0.1:47800 whenever an app is listening there and
-// retries every 5 s otherwise. Messages are JSON; see API.md.
-// ponytail: one app at a time; an app that wants several layers runs them behind its own one connection.
+// Rudder's link to apps on this computer. Firefox can't serve gRPC, so Rudder connects as a client to bridge/bridge.py
+// on ws://127.0.0.1:47800 (retrying every 5 s), and the bridge serves the gRPC API (bridge/rudder.proto) to apps.
+// JSON messages: Rudder sends state and judge; the bridge sends get, set-filters, layer and verdicts. See API.md.
 const ADDRESS = "ws://127.0.0.1:47800", TIMEOUT = 30000;
 export const APP = "app: "; // a layer shows up in Rudder's filter list as "app: <name>"
 

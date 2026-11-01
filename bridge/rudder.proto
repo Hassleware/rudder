@@ -1,0 +1,83 @@
+// Rudder's local gRPC API, served by bridge.py on 127.0.0.1:47801. Generate a client in any language from this file.
+// (The Firefox extension can't serve gRPC itself: it connects to the bridge over a WebSocket on 127.0.0.1:47800.)
+syntax = "proto3";
+
+package rudder.v1;
+
+service Rudder {
+  // Rudder's filters and statistics, as last reported by the extension.
+  rpc GetState(Empty) returns (State);
+  // The state now, then again on every change.
+  rpc WatchState(Empty) returns (stream State);
+  // Replace the filter list, the same as editing it in the popup. Fails with UNAVAILABLE if Firefox isn't connected.
+  rpc SetFilters(Filters) returns (State);
+  // A filtering layer. Send LayerMessage{hello} first, then answer each JudgeRequest with LayerMessage{verdicts} of the
+  // same id: one Verdict per video, in order. A video is hidden if any layer hides it. No answer within 25 s, a wrong
+  // count, or closing the stream mid-request hides those videos (strict). Closing the stream removes the layer.
+  rpc Layer(stream LayerMessage) returns (stream JudgeRequest);
+}
+
+message Empty {}
+
+message Filters {
+  repeated string filters = 1;
+}
+
+message Stats {
+  int32 checked = 1;
+  int32 hidden = 2;
+  map<string, int32> hidden_by_filter = 3;
+  int32 likes = 4;
+  int32 dislikes = 5;
+  bool learning = 6;  // the like/dislike model is trained
+}
+
+message Hidden {
+  string id = 1;
+  string title = 2;
+  string channel = 3;
+  string why = 4;
+}
+
+message State {
+  bool connected = 1;  // Firefox is connected to the bridge
+  bool enabled = 2;
+  repeated string filters = 3;
+  repeated string layers = 4;  // names of the connected layers
+  Stats stats = 5;
+  repeated Hidden recent = 6;  // the newest hidden videos
+}
+
+message Video {
+  string id = 1;  // YouTube video id
+  string title = 2;
+  string channel = 3;
+  bytes image = 4;  // the thumbnail Firefox already downloaded; empty if none
+  string image_type = 5;  // "image/jpeg" or "image/webp"
+}
+
+message JudgeRequest {
+  int64 id = 1;
+  repeated Video videos = 2;
+}
+
+message Verdict {
+  bool blocked = 1;
+  string why = 2;  // shown in the popup's recently hidden list
+}
+
+message Verdicts {
+  int64 id = 1;
+  repeated Verdict results = 2;
+}
+
+message LayerHello {
+  string name = 1;  // unique per layer; a new name has every video judged again
+}
+
+message LayerMessage {
+  oneof msg {
+    LayerHello hello = 1;
+    Verdicts verdicts = 2;
+  }
+}
