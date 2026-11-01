@@ -1,7 +1,7 @@
 // extension/api.js ↔ bridge/bridge.py ↔ gRPC apps, end to end: an app stage puts itself into the pipeline and judges
 // videos; a wrong pipeline is refused; video records (with thumbnails) reach GetVideos; SetFilters, panels and their
 // clicks, GetTimings and Test go through; an app leaving is noticed, and so is the bridge going.
-// Usage: node research/bridge-check.mjs (needs: pip install -r bridge/requirements.txt)
+// Usage: node tests/bridge-check.mjs (needs: pip install -r bridge/requirements.txt)
 import { spawn } from "node:child_process";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";

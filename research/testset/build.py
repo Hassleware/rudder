@@ -1,7 +1,7 @@
 # Rudder test set, step 2: merge the sources into one labelled set (hide / show under the 31 default filters).
 #   search.json  YouTube searches per filter topic and per harmless topic (collect.py), with hand fixes below
 #   user/        the user's screenshot (2026-10-31): their own verdicts
-#   tbench/      the earlier thumbnail benchmark (research/thumbs), relabelled under the default filters
+#   tbench/      the earlier thumbnail benchmark (research/thumbs, removed since; in git history), relabelled under the default filters
 # Every item gets a dev/test split (alternating within each source+label) so thresholds are tuned on dev only.
 # Usage: python build.py <scratch dir with testset/, vision/user/, vision/tbench/>
 import json, os, shutil, sys

@@ -1,14 +1,14 @@
 // CPU-only check of Rudder's learner (extension/youtube/personal.js) with made-up fingerprints: two "topics" (clusters)
-// in layer-7 space; 👎 a few of one, 👍 / see a few of the other, and the learner should hide the rest of the first
+// in fingerprint space; 👎 a few of one, 👍 / see a few of the other, and the learner should hide the rest of the first
 // and leave the second alone; channels with 2 👎 get hidden; an explicit 👍 always shows.
-// Run: node research/personal-check.mjs
+// Run: node tests/personal-check.mjs
 const mem = {};
 const storage = { get: async (k) => Object.fromEntries([k].flat().map((x) => [x, mem[x]])), set: async (o) => Object.assign(mem, o) };
 const { createLearner, fingerprint } = await import("../extension/youtube/personal.js");
 let s = 1;
 const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647) - 0.5;
 const centre = () => Float32Array.from({ length: 1536 }, rnd);
-const near = (c) => [Float32Array.from(c, (x) => x * 4 + rnd() * 3)]; // one layer-7 row near a topic centre
+const near = (c) => [Float32Array.from(c, (x) => x * 4 + rnd() * 3)]; // one fingerprint near a topic centre
 const A = centre(), B = centre();
 const vid = (i, c, ch) => ({ id: "v" + i, title: "t" + i, channel: ch, print: { t: fingerprint(near(c)), i: fingerprint(near(c)) } });
 const L = createLearner(storage);

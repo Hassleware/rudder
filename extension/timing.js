@@ -1,4 +1,4 @@
-// Rudder times every stage (ms). Apps read them with the bridge's GetTimings; research/*-check.mjs can import timings().
+// Rudder times every stage (ms). Apps read them with the bridge's GetTimings; tests/*-check.mjs can import timings().
 // Percentiles are over each stage's newest 500 runs; count, mean and max are since the last reset.
 const stages = new Map(); // name → { n, sum, max, last, recent: [] }
 

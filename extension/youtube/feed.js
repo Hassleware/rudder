@@ -12,7 +12,7 @@
   (document.head ?? document.documentElement).appendChild(script);
   script.onload = () => script.remove();
   window.addEventListener("message", (e) => {
-    if (e.source !== window || !e.data?.gemmaYT) return;
+    if (e.source !== window || !e.data?.rudderYT) return;
     browser.runtime.sendMessage({ type: "yt-data", source: e.data.source, json: e.data.json }).catch(() => {});
   });
 
@@ -44,12 +44,12 @@
     let open = true;
     const shown = [], t = Date.now();
     for (const tile of tiles) {
-      const v = tile.getAttribute("gemma-verdict");
+      const v = tile.getAttribute("rudder-verdict");
       if (v === "block") continue;
-      if (v === "ready" && open) { tile.setAttribute("gemma-verdict", "show"); shown.push(tile.getAttribute("gemma-id")); continue; }
+      if (v === "ready" && open) { tile.setAttribute("rudder-verdict", "show"); shown.push(tile.getAttribute("rudder-id")); continue; }
       if (v === "show" || v === "ready") continue;
       if (!since.has(tile)) since.set(tile, t);
-      if (!free && t - since.get(tile) < (tile.hasAttribute("gemma-id") ? 60000 : 5000)) open = false;
+      if (!free && t - since.get(tile) < (tile.hasAttribute("rudder-id") ? 60000 : 5000)) open = false;
     }
     if (shown.length) browser.runtime.sendMessage({ type: "yt-shown", ids: shown, at: Date.now() }).catch(() => {});
   }
@@ -61,7 +61,7 @@
     if (!list) return;
     const perRow = parseInt(getComputedStyle(grid).getPropertyValue("--ytd-rich-grid-items-per-row")) || 4;
     const kids = [...list.children], places = []; // places[k] = order of the k-th tile that takes a place in the grid
-    const item = (el) => el.tagName === "YTD-RICH-ITEM-RENDERER", inPlace = (el) => el.getAttribute("gemma-verdict") !== "block";
+    const item = (el) => el.tagName === "YTD-RICH-ITEM-RENDERER", inPlace = (el) => el.getAttribute("rudder-verdict") !== "block";
     kids.forEach((el, i) => {
       if (item(el)) { el.style.order = i * 10; if (inPlace(el)) places.push(i * 10); }
       else if (el.tagName !== "YTD-RICH-SECTION-RENDERER") el.style.order = 1e7; // the "load more" spinner stays last
@@ -81,7 +81,7 @@
   // rows move up to fill it, and a row still not full is hidden. One row each.
   function fillShorts() {
     const shelves = [...document.querySelectorAll(`${GRID} ytd-rich-shelf-renderer[is-shorts]`)];
-    const v = (el) => el.getAttribute("gemma-verdict"), items = (sh) => [...sh.querySelectorAll("ytd-rich-item-renderer")];
+    const v = (el) => el.getAttribute("rudder-verdict"), items = (sh) => [...sh.querySelectorAll("ytd-rich-item-renderer")];
     shelves.forEach((shelf, i) => {
       if (!shelf.hasAttribute("rudder-expanded") && items(shelf).some((el) => v(el) === "block")) {
         const more = [...shelf.querySelectorAll("button")].find((b) => /show more/i.test(b.getAttribute("aria-label") || b.textContent));
@@ -111,25 +111,25 @@
   function gateShort() { // right away on every change: a new short is hidden before it can be seen
     const id = shortId(), h = host();
     if (!id) { opened = null; return; }
-    if (!h || h.getAttribute("gemma-id") === id) return;
+    if (!h || h.getAttribute("rudder-id") === id) return;
     opened ??= id; // the short the viewer was opened on: the user's choice
-    h.setAttribute("gemma-id", id);
-    h.setAttribute("gemma-verdict", id === opened ? "show" : "wait");
+    h.setAttribute("rudder-id", id);
+    h.setAttribute("rudder-verdict", id === opened ? "show" : "wait");
   }
   function pauseIfHidden() {
     const h = host(), video = h?.querySelector("video");
-    if (video && shortId() && h.getAttribute("gemma-verdict") !== "show" && !video.paused) { video.pause(); pausedByUs = true; }
+    if (video && shortId() && h.getAttribute("rudder-verdict") !== "show" && !video.paused) { video.pause(); pausedByUs = true; }
   }
   document.addEventListener("play", pauseIfHidden, true);
   async function shorts() {
     gateShort();
     const id = shortId(), h = host();
     if (!id || !h) return;
-    if (h.getAttribute("gemma-verdict") === "show") { lastShown = id; return; }
+    if (h.getAttribute("rudder-verdict") === "show") { lastShown = id; return; }
     const v = (await browser.runtime.sendMessage({ type: "yt-tiles", tiles: [{ id, viewer: true, dist: 0 }] }))?.[id];
     if (shortId() !== id) return;
     if (v === "show") {
-      h.setAttribute("gemma-verdict", "show");
+      h.setAttribute("rudder-verdict", "show");
       lastShown = id;
       browser.runtime.sendMessage({ type: "yt-shown", ids: [id], at: Date.now() }).catch(() => {});
       if (pausedByUs) { pausedByUs = false; h.querySelector("video")?.play().catch(() => {}); }
@@ -146,10 +146,10 @@
     if (Date.now() - skippedAt < 600) return; // one skip at a time
     skippedAt = Date.now();
     const slots = [...h.querySelectorAll(".reel-video-in-sequence-new")], step = up ? -1 : 1;
-    const at = slots.findIndex((x) => x.getAttribute("gemma-id") === id);
+    const at = slots.findIndex((x) => x.getAttribute("rudder-id") === id);
     for (let k = at + step; at >= 0 && k >= 0 && slots[k]; k += step) {
-      if (slots[k].getAttribute("gemma-verdict") === "block") continue;
-      if (slots[k].getAttribute("gemma-id")) { slots[k].scrollIntoView({ block: "start", behavior: "instant" }); return; }
+      if (slots[k].getAttribute("rudder-verdict") === "block") continue;
+      if (slots[k].getAttribute("rudder-id")) { slots[k].scrollIntoView({ block: "start", behavior: "instant" }); return; }
       break;
     }
     h.querySelector(`#navigation-button-${up ? "up" : "down"} button`)?.click();
@@ -162,10 +162,10 @@
     if (!over || over.offsetParent === null || getComputedStyle(over).display === "none") return;
     const href = over.querySelector("a.ytp-autonav-endscreen-link-container, a[href*='/watch?v=']")?.getAttribute("href") ?? "";
     const id = href.match(/[?&]v=([\w-]{11})/)?.[1];
-    if (over.getAttribute("gemma-id") === id && over.getAttribute("gemma-verdict") === "show") return;
-    over.setAttribute("gemma-id", id ?? "");
+    if (over.getAttribute("rudder-id") === id && over.getAttribute("rudder-verdict") === "show") return;
+    over.setAttribute("rudder-id", id ?? "");
     const v = id ? (await browser.runtime.sendMessage({ type: "yt-tiles", tiles: [{ id, viewer: true, dist: 0, title: over.querySelector(".ytp-autonav-endscreen-video-info-title, .ytp-autonav-endscreen-upnext-title")?.textContent.trim() }] }))?.[id] : null;
-    if (v === "show") { over.setAttribute("gemma-verdict", "show"); return; }
+    if (v === "show") { over.setAttribute("rudder-verdict", "show"); return; }
     over.querySelector(".ytp-autonav-endscreen-upnext-cancel-button, button[aria-label*='Cancel' i]")?.click(); // strict: not passed (yet) → no autoplay
   }
 
@@ -222,7 +222,7 @@
     if (!id) return;
     toast(like ? "More like this" : "Less like this");
     browser.runtime.sendMessage({ type: "rudder-feedback", id, like, title: meta ? text(meta.querySelector("h1")) : null, channel: meta ? text(meta.querySelector("ytd-channel-name a")) : null }).catch(() => {});
-    if (!like && short) setTimeout(() => { const h = host(); if (h && shortId() === id) { h.setAttribute("gemma-verdict", "block"); skip(h, id, false); } }, 300); // after YouTube has taken the dislike
+    if (!like && short) setTimeout(() => { const h = host(); if (h && shortId() === id) { h.setAttribute("rudder-verdict", "block"); skip(h, id, false); } }, 300); // after YouTube has taken the dislike
   }, true);
   function addMenuItems() {
     if (!menuFor || Date.now() - menuFor.at > 4000 || !menuFor.id) return;
@@ -247,8 +247,8 @@
         if (e.type !== "click") return;
         drop.close?.();
         document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-        if (!like && target.tile) { target.tile.setAttribute("gemma-verdict", "block"); settleShelves(); }
-        if (!like && target.short && host() && shortId() === target.id) { host().setAttribute("gemma-verdict", "block"); skip(host(), target.id, false); } // a short you 👎: on to the next
+        if (!like && target.tile) { target.tile.setAttribute("rudder-verdict", "block"); settleShelves(); }
+        if (!like && target.short && host() && shortId() === target.id) { host().setAttribute("rudder-verdict", "block"); skip(host(), target.id, false); } // a short you 👎: on to the next
         toast(like ? "More like this" : "Less like this");
         browser.runtime.sendMessage({ type: "rudder-feedback", id: target.id, like, title: target.title, channel: target.channel }).catch(() => {});
       };
@@ -267,7 +267,7 @@
     for (const [box, tiles, want] of MORE) {
       const list = document.querySelector(box), spot = list?.querySelector("ytd-continuation-item-renderer");
       if (!spot || spot.hasAttribute("rudder-more") || pages.n >= 4 || Date.now() - pages.at < 4000) continue;
-      const v = (el) => el.getAttribute("gemma-verdict");
+      const v = (el) => el.getAttribute("rudder-verdict");
       const kept = [...list.querySelectorAll(tiles)].filter((el) => v(el) !== "block").length;
       if (kept >= want) continue;
       pages.n++; pages.at = Date.now();
@@ -287,12 +287,12 @@
       const lists = [TILES, SEARCH, CHANNEL, OTHER, SIDE, SLOTS].map((s) => [...document.querySelectorAll(s)]), ask = [];
       const watching = new URLSearchParams(location.search).get("v");
       for (const tile of lists.flat()) {
-        if (tile.querySelector("ytd-ad-slot-renderer")) { tile.setAttribute("gemma-verdict", "block"); continue; } // ad
+        if (tile.querySelector("ytd-ad-slot-renderer")) { tile.setAttribute("rudder-verdict", "block"); continue; } // ad
         const id = idOf(tile);
         if (!id) continue; // not filled in yet: stays hidden
-        if (tile.getAttribute("gemma-id") !== id) { tile.setAttribute("gemma-id", id); tile.removeAttribute("gemma-verdict"); } // YouTube reuses tiles
-        if (tile.hasAttribute("gemma-verdict") && !(recheck && id !== watching)) continue;
-        if (id === watching || (id === opened && tile.matches(SLOTS))) { tile.setAttribute("gemma-verdict", "ready"); continue; } // the video being watched, or the short the viewer was opened on: never filtered
+        if (tile.getAttribute("rudder-id") !== id) { tile.setAttribute("rudder-id", id); tile.removeAttribute("rudder-verdict"); } // YouTube reuses tiles
+        if (tile.hasAttribute("rudder-verdict") && !(recheck && id !== watching)) continue;
+        if (id === watching || (id === opened && tile.matches(SLOTS))) { tile.setAttribute("rudder-verdict", "ready"); continue; } // the video being watched, or the short the viewer was opened on: never filtered
         const img = tile.querySelector("img"), r = tile.getBoundingClientRect();
         ask.push({
           tile, id, imageLoaded: !!(img?.complete && img.naturalWidth), viewer: tile.matches(SLOTS) || undefined,
@@ -305,9 +305,9 @@
       if (ask.length) {
         const verdicts = await browser.runtime.sendMessage({ type: "yt-tiles", tiles: ask.map(({ tile, ...t }) => t) });
         for (const { tile, id } of ask) {
-          const v = verdicts?.[id], was = tile.getAttribute("gemma-verdict");
-          if (v === "block") tile.setAttribute("gemma-verdict", "block");
-          if (v === "show" && was !== "show") tile.setAttribute("gemma-verdict", "ready"); // a re-check never re-hides a shown tile
+          const v = verdicts?.[id], was = tile.getAttribute("rudder-verdict");
+          if (v === "block") tile.setAttribute("rudder-verdict", "block");
+          if (v === "show" && was !== "show") tile.setAttribute("rudder-verdict", "ready"); // a re-check never re-hides a shown tile
         }
       }
       lists.forEach((l, k) => reveal(l, k === lists.length - 1)); // the last list: Shorts viewer slots
@@ -327,7 +327,7 @@
   const regateSlots = () => {
     for (const slot of document.querySelectorAll(SLOTS)) {
       const id = slotId(slot);
-      if (slot.getAttribute("gemma-id") !== (id ?? "")) { slot.setAttribute("gemma-id", id ?? ""); slot.removeAttribute("gemma-verdict"); }
+      if (slot.getAttribute("rudder-id") !== (id ?? "")) { slot.setAttribute("rudder-id", id ?? ""); slot.removeAttribute("rudder-verdict"); }
     }
   };
   new MutationObserver(() => { gateShort(); regateSlots(); pauseIfHidden(); addMenuItems(); decorateThumbs(); soon(); }).observe(document.documentElement, { childList: true, subtree: true });
@@ -338,8 +338,8 @@
     if (msg?.type === "yt-ready") soon();
     if (msg?.type === "yt-recheck") check(true); // you taught Rudder something: re-decide every tile on the page
     if (msg?.type === "yt-reset") { // the filters changed: every video is decided again (hidden until then)
-      for (const el of document.querySelectorAll("[gemma-verdict]")) el.removeAttribute("gemma-verdict");
-      host()?.removeAttribute("gemma-id");
+      for (const el of document.querySelectorAll("[rudder-verdict]")) el.removeAttribute("rudder-verdict");
+      host()?.removeAttribute("rudder-id");
       since = new WeakMap();
       check();
     }

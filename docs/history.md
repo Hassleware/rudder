@@ -1,0 +1,210 @@
+# Development log
+
+How Rudder got here, in the order it happened (29 October to 1 November 2026). It started as Gemma, a language model, running on the GPU inside Firefox; became a YouTube filter judged by that model; and ended up with no language model at all (see "Rudder without an LLM"). For how Rudder works today, read [how-it-works.md](how-it-works.md). Files named here may since have been removed; they're in the git history.
+
+## Gemma in the browser: how to do it next time
+
+Two ways to run it, sharing one file of GPU fixes (`extension/gpu-fixes.js`):
+- `index.html`: a web page. Open it straight from disk; no server needed.
+- `extension/`: the same chat as a Firefox toolbar popup (see below).
+
+## Get it working (any browser)
+
+1. **Use WebLLM, not transformers.js.** Model: `gemma-4-E2B-it-q4f16_1-MLC`. Its GPU programs come pre-built for the browser, and its answers were better than the 2-bit transformers.js version.
+2. **One file, no server.** The Download button fetches every model file and saves them together as one `.bin`. The Run button reads that `.bin` back, and the page answers WebLLM's file requests from it by replacing the browser's built-in file cache (`caches`) with its own. That's why it works opened straight from disk.
+3. **Free the GPU when the tab closes:** call `engine.unload()` on `pagehide`. Otherwise Firefox can keep gigabytes of VRAM after the tab is gone.
+
+## Make Firefox fast (no Firefox settings changed)
+
+4. **Fix the 100 ms wait per token.** Firefox only checks for finished GPU work every 100 ms, but any `queue.submit([])` makes it check immediately. So while the model waits on the GPU, the page sends empty submits about every 0.5 ms. This took Firefox from 6 to 20 tok/s.
+5. **Fix the 50-second first reply.** One GPU program, the one that reads your whole message at once, takes Firefox ~40 s to build. Setting `prefillChunkSize = 1` makes it read one token at a time with programs that build quickly. The first word now comes in under a second.
+6. **Shorten the warm-up.** Shrink two kinds of slow-to-build programs: a huge copy-pasted one (rewritten as a loop), and ones with big shared-memory arrays (packed half as large). Then run one tiny warm-up reply right after loading.
+7. **Cut per-token overhead** (helps Chrome too):
+   - reuse identical bind groups instead of recreating them every token
+   - skip parameter writes when the bytes haven't changed
+   - put all GPU jobs in one compute pass instead of one per job
+
+   This took Firefox from 20 to 68 tok/s and Chrome from 55 to 78.
+
+## Results (RTX 5080)
+
+| | Firefox | Chrome |
+|---|---|---|
+| Start | 6 tok/s, 50 s to first word | 55 tok/s |
+| End | ~68 tok/s, first word in 0.1–0.2 s | ~78 tok/s |
+
+Loading is ~10 s plus a ~6 s warm-up.
+
+## Firefox extension (in `extension/`)
+
+The same chat as a toolbar popup, with all the speed fixes.
+
+- **How it's split:** `background.js` runs the model in a background page that lives as long as Firefox. `popup.js` is only the chat window, so closing and reopening the popup is instant and keeps the chat.
+- **First time:** the popup offers **Download (2.9 GB, ~9 min)** or **Import model file** (your `.bin` from `index.html`, ~8 s). The model is then stored inside the extension.
+- **Loads at Firefox startup** (if installed), so the popup is ready when you open it.
+- **VRAM:** freed automatically after 10 minutes without use.
+- **Snapshot toggle:** while on, every reply is recorded word by word: the output of every GPU job (~1165 per word: embedding, each layer's norms/attention/MLP, sampling), and `snapshot.html` opens or refreshes. ←/→ step through the words (input word → picked word), ↑/↓ through the rows. The copies are added on the same command encoder right after each job, because WebLLM reuses buffers within a word. Each word closes at WebLLM's GPU→CPU read of the picked word; prompt-reading passes that pick no word are dropped, so word 1 is the last prompt pass (1262 rows, a different compiled program). Only the first 8 KB of each output is copied (~7.5 MB per word, max 100 words per reply), and pooled buffers can be bigger than the tensor, so values past its end are leftovers. Replies are identical with it on.
+  - **Cheap recording (61 vs 67 tok/s):** a tiny WGSL copy kernel runs right after each job *inside the same compute pass* and copies its outputs into one collection buffer; offsets come from a uniform table slot (dynamic offset), rewritten only when they change. Per word: one copy to a pooled staging buffer, one mapAsync, rows are views into one ArrayBuffer. Measured: a buffer + mapAsync per output gave 5 tok/s; splitting the pass per output cost 68→37 and a copy command per output 37→29; read-back itself is ~free.
+  - **Exact context:** background.js mirrors the KV cache by wrapping `artifactPrefillAndForward` / `artifactDecodeAndForward` (Gemma 4 is an "artifact" model; `embedAndForward` isn't used) and trimming to `filledKVCacheLength`. The title shows the exact tokens in memory. Note: the previous reply's `<turn|>` is not in the cache (stop tokens aren't fed back).
+  - **KV cache:** max 4096 tokens since New chat; 15 of 35 layers store K/V (`num_kv_shared_layers` 20), ~8.4 MB each ≈ 126 MB; local layers attend to the last 512 tokens, global layers (every 5th) to all. `stages.js` groups the rows into setup → 35 layers (each split into norm/QKV, memory write, attention, attention add, MLP, per-layer input mix, layer output) → scoring → sampling, by matching Gemma 4 E2B's kernel names; another model would need new markers.
+- **One-sentence filter (in the snapshot viewer):** type any sentence ("anything about bees", "I don't want any information on gambling") and **Set filter** (0.1 s after the first one). No examples, no training, one dot product per token.
+  - **Method** (`probe.js`): the model reads the sentence as if it had written it as a chat reply; its **layer-7** output at the sentence's last token, minus the average of the same for 25 generic topic sentences ("anything about the weather", …; a Rocchio negative centroid, read once and cached), is the filter direction. Each token: dot product with its layer-7 output (1536 multiply-adds), in units of ordinary text's spread (z), smoothed (EMA ½), then averaged with the next two words' scores so context can settle the meaning ("spelling bee" vs "honeybee"; a word's verdict comes 2 words later). Fires above **z = 3.44** for every filter (1% of ordinary dev passages go over it).
+  - **Capture:** `background.js` `layerStates` feeds text one token at a time and copies only the 35 layer-output kernels with the snapshot's in-pass copy kernel (~70 tokens/s); while chatting, the snapshot already holds them.
+  - **Benchmark** (`bench/`, "benchmark" link in the viewer, ~3 min GPU with the judge): 10 filters, each with 6 on-topic passages that name the topic, 6 that don't ("the forager danced…"), 6 look-alikes ("spelling bee", "all at sea") and 1 mixed passage, plus 20 ordinary passages per set. `filters.json` = dev (5 filters, the method was chosen on these), `filters-test.json` = held out. Every filter also has 4 rephrasings, including "I don't want any information on …".
+  - **Research** (`research/probe-research.mjs`, `node research/probe-research.mjs <dump dir> <round>`): dump every passage's layer outputs once (`dumpBench(url)` in the background page, ~1 min GPU, ~470 MB f16), then try probe variants on the CPU. ~1,700 setups over 5 rounds, chosen on dev with all 5 phrasings, checked on held-out:
+
+    | | cost/token | AUROC dev | AUROC held-out | "I don't want…" phrasing |
+    |---|---|---|---|---|
+    | first version (12 layers, cosine, neutral sentence) | 36,864 | 0.830 | 0.822 | 0.53 |
+    | **now (layer 7, dot product, topic bank)** | **1,536** | **0.984** | **0.983** | **0.98** |
+
+    Held-out at the shipped threshold: 94% of direct and 81% of indirect passages fire, 41% of look-alikes, 3% of other topics, 0% of ordinary text; mixed passages never fire early and fire 2–11 tokens after the topic starts. (In the browser run: AUROC 0.982 dev / 0.984 held-out.)
+  - **What mattered:** reading the sentence the way content is read (as a chat reply) and taking its last token; the topic-bank reference instead of one neutral sentence (0.970 → 0.985; even 3 topics help); layers 6–8 (the topic is clearest there; early layers miss paraphrases, deep layers miss topics). No gain from: more layers, cosine instead of dot, per-dimension whitening, two layers that must agree (fewer look-alikes but lower recall; a stricter 1-layer threshold does as well).
+  - **Confidence** (`confidence` in `probe.js`, free): over the last 16 words, how many are over the threshold (1 = low, 2 = medium, 3+ = high) and the average of the top 3 scores. Look-alikes make one word spike; real topic text keeps several high (research round 6: top-3 average separates look-alikes better than the single highest word, 0.864 vs 0.823 held-out). The viewer underlines firing words yellow/orange/red by tier.
+  - **Long text** (`bench/haystack.json`, "Run long-text test", ~3 min GPU): 14 pages of ordinary prose (1,713 tokens) and 40 needles hidden in it (2 passing mentions, 1 on-topic sentence, 1 look-alike per filter, each with ~300 words before it). Result (with the 2-word look-ahead): passing mentions flagged 17/20 (all medium or high), on-topic sentences 9/10, look-alikes 1/10 ("a gamble"). Pages alone: 8 of 10 filters never fired once in 1,713 tokens; cooking 4 times, gambling 2. Misses: all 3 football needles (scores 2–3: the "anything about football (soccer)" filter is the weakest) and one cooking mention.
+  - **Look-alikes (research rounds 7–8):** tried four fixes that keep one dot product per word. (a) The model writes its own keyword-free sentences and look-alikes per filter, and the direction moves towards / away from them: no gain on held-out filters, because E2B's "look-alikes" are mostly on-topic ("A bee sting", "Worker bee"); it would need a stronger writer. (b) Removing the bare key word's direction: lower recall, no gain. (d) A deeper layer (9–15) that must agree: fewer look-alikes only by losing much more recall. (c) **Waiting two words for context: the winner**: at every strictness it gets more recall for the same look-alike rate. Held-out, all 5 phrasings: look-alikes 29% → 27% with direct hits 81% → 87% and keyword-free hits 62% → 74% (vs the old probe at the same strictness); shipped at z 3.44 it fires on a third fewer look-alikes than before (41% → 27%) for ~7 points less recall. Browser, each filter's main sentence: held-out look-alikes 47% → 37% (direct 100% → 97%, keyword-free 87% → 83%); long text: look-alike needles 2/10 → 1/10, false alarms over the pages cooking 7 → 4 and gambling 3 → 2, passing mentions still 17/20.
+  - **vs Gemma as a Yes/No judge** (same model, same passages, canonical sentences; it reads each passage whole and fires when it prefers "Yes"): judge AUROC 0.996 dev / 0.995 held-out vs probe 0.983 / 0.987; judge look-alikes 3% / 17% vs probe 27% / 37%, but judge recall is lower (held-out direct 90% vs 97%, keyword-free 70% vs 83%) and in long text it caught only **6/20 passing mentions** (vs 17/20) in ~110-word chunks, though with 0 false alarms. Cost: 125 ms and a full 35-layer pass over ~59 tokens per short-passage decision (needs the 512-token prefill kernel), vs one dot product per word. Neither wins outright: the judge is better at meaning, the probe at catching a mention anywhere, immediately.
+  - **Cascade + ensemble (shipped; `CASCADE` and `cascade()` in `probe.js`, `judge()` / `cascadeRun()` in `background.js`):** per sentence, from the probe's word scores: peak ≤ 1.5 → clear, no judge; top-3 average ≥ 8 → blocked, no judge; otherwise Gemma judges that sentence alone (margin = logit Yes − logit No for its first answer word) and the ensemble **probe peak + 2 × margin** blocks above −8. The judge keeps its fixed prompt start (with the filter sentence) in memory and rolls back after each call (TVM `kv_state_popn`; same answer as a fresh read), reading one token at a time: ~0.38 s per call. Chosen with `research/cascade-sweep.mjs` on per-sentence scores saved from the extension (dev filters, look-alike fires counted 3× against hits; a sweep that counted them 1× picked a lenient threshold that got *worse* on held-out). Browser, each filter's main sentence:
+
+    | | probe alone (dev / held-out) | cascade (dev / held-out) |
+    |---|---|---|
+    | AUROC | 0.983 / 0.987 | **0.994 / 0.996** |
+    | direct hits | 77% / 97% | **100% / 97%** |
+    | keyword-free hits | 53% / 83% | 57% / 80% |
+    | look-alikes | 27% / 37% | **3% / 27%** |
+    | other topics, ordinary passages | 0–2% | **0%** |
+    | long text: mentions, on-topic, look-alikes | 17/20, 9/10, 1/10 | 17/20, **10/10**, 2/10 |
+    | long text: false alarms on the pages | cooking 4, gambling 2 | **0** |
+    | judge calls | none | ~5 per 1,000 ordinary words |
+
+    In chats (filter "I don't want any information on bees"): trains reply clear (one unsure sentence, judge −28.9); honeybee reply blocked from the first sentence; a single passing bee in a paragraph blocked only at that sentence; "my niece won the school spelling bee" clear without needing the judge. The judge clears the chat's memory like the probe capture does, so the next message re-reads the history. Still a recorded-reply check in the viewer: stopping a reply live would need the probe in the generation pass and the judge on a second memory sequence.
+  - **Snapshot fix:** a word's own layer output is in the *next* step (when it's fed back in); the viewer used to show each word's score on the following word.
+  - **Limits:** look-alikes are still the weak spot (ocean: "all at sea", a lake, a pool). Raising the threshold trades them off against recall (held-out: 2% ordinary fire → 41% look-alikes / 81% indirect; 1% → 29% / 62%). Tested only on short English passages and 10 topics.
+- **Shared fixes:** `gpu-fixes.js` holds all the GPU fixes, shared with `index.html`'s approach. `vendor/web-llm.js` is copied from npm by `npm install`.
+
+Commands:
+- `npm start`: opens a separate Firefox with the extension loaded, reloading when you save a file. It uses `.dev-profile/` (kept between runs, so the model stays installed) and works with your normal Firefox open.
+- `npm run lint`: checks our code the way addons.mozilla.org will. WebLLM's file is skipped because it's too big for the linter.
+- `npm run build`: packs it into `dist/gemma_local-<version>.zip`.
+- First time in a new folder: run `npm install`.
+- Why manifest v2: it's the only way to get a background page that stays alive in Firefox, which the model needs.
+
+## Thumbnails (Gemma 4's eyes, research only so far)
+
+- **Our WebLLM build has no vision** (its manifest: text + audio; "vision weights are excluded"). Gemma 4's own vision encoder ships separately in the ONNX build (`onnx-community/gemma-4-E2B-it-ONNX`, `vision_encoder_q4`, 99 MB + 0.2 MB graph). Its output (`image_features` [tokens × 1536]) goes straight into our model through the same entry point WebLLM uses for audio: `artifactPrefillAndForward(embeddings, [258880…], modality 1)` between `<|image>` (255999) and `<image|>` (258882). Preprocessing = transformers.js `Gemma4ImageProcessor`: aspect-preserving resize to a multiple of 48 px, /255, 16×16 patches in HWC order with [col, row] positions, 3×3 pooling → a 320×180 thumbnail at the 70-token budget is 528×288 px → **66 image tokens**.
+- **It sees:** "a steam locomotive pulling a train… with a dramatic cloud of smoke", "a man, a fluffy puppy, and a black puppy, with text proclaiming a 'Puppy Guide!'", and reads text-only thumbnails exactly ("I LOST $10K AT THE CASINO"). Small subjects (bees on comb) come out vague at 70 tokens.
+- **Text filters fire on images** (`research/thumb-bench.mjs`, thumbnails and scripts in `research/thumbs/`): 130 thumbnails = 40 real on-topic (4 per filter topic, from YouTube search), 20 text-only (topic only as words on a plain background), 30 look-alikes (spelling bee, glue gun, hot dog contest, lake swimming…), 30 ordinary + 10 neutral-text. Each goes into Gemma under the title "My weekend vlog"; the existing text probes score its image tokens. Calibrated per filter on 20 ordinary thumbnails only (mean and spread of the image score), threshold = the highest calibration score:
+  - AUROC 0.96 (top-3 image tokens; 0.93 for the mean of all image tokens)
+  - on-topic photos 80%, **text-only thumbnails 95%**, look-alikes 20%, other topics 8%, ordinary test thumbnails 3%
+  - strong: dogs, crypto, guns, space, gambling, cooking photos (scores 6–21); weak: football match photos (all missed; the football filter is weak in text too), illness (doctor/flu photos), some bee-hive close-ups. Look-alikes that fire look the part (hot glue guns, lake swimming for "ocean").
+  - images sit at their own per-filter baseline (e.g. any image ≈ 4.2 under "bees", ≈ 2 under "dogs"), so calibrating on ordinary *thumbnails* matters for the threshold (AUROC doesn't change).
+- **Cost:** encoder 4.7 s per thumbnail single-threaded in Firefox (onnxruntime-web, CPU; its WebGPU backend would share the GPU with our patched WebGPU code), 0.2 s on 32 CPU threads in Node; Gemma reading the 66 image tokens ~0.6 s. The judge isn't usable on images yet (it leans "Yes" for any image with an uninformative title).
+
+## YouTube home feed reader (`extension/youtube/`, not linked to the filter yet)
+
+Sees every video's title and thumbnail **before the page shows it**, with no requests of its own, no scrolling and no screenshots; only the browser's own traffic and the page's own data.
+
+**Filling the feed (2026-10-31):** removed videos would leave a short feed, so `fill()` in `feed.js` briefly pins YouTube's own "load more" spot on screen (invisible) and YouTube's page fetches its next page, the same request a scroll sends. Only on the home grid and the watch sidebar, only after Rudder hid something, until the spot is 2 screens below the window, at most 4 pages per visit. Rudder itself still fetches nothing.
+- `page.js` is a page script, added to the page by the content script `feed.js`, and reads the page's own `ytInitialData` the moment YouTube sets it (and `yt-navigate-finish` data). The home HTML comes through YouTube's service worker, so it isn't read off the network.
+- `intercept.js` (background) turns that data into videos (id, title, channel, thumbnail address; Mixes by their first video, Shorts from `thumbnailViewModel.thumbnailViewModel.image.sources`), reads the bytes of every thumbnail the page downloads from `i.ytimg.com` and the page's own `youtubei/v1/browse` responses (Firefox `webRequest.filterResponseData`, bytes passed on unchanged). `verdict()` is where the filter will plug in; for now it waits until title and thumbnail are both read.
+- `hide.css` + `feed.js` keep every home tile invisible (it keeps its size, so layout and lazy loading are normal) until its verdict is "show".
+- Test (no scrolling, 2048×1019 window): 41 videos read, all with titles and thumbnail addresses; the page downloaded 14 thumbnails and all 14 were read; every tile on screen was shown, each only after its title (~200 ms before) and thumbnail (30–100 ms before) were read. YouTube only downloads thumbnails for tiles near the screen, so the rest arrive as you scroll. Results: `youtube-read-test.html`, `youtube-home-test.html`.
+- **Linked to the filter (report only):** `filterYoutube(sentences)` in the background page runs the cascade over every video read, as "title — channel: name" (each read through Gemma once, scored for every filter; ~0.7 s per video for two filters). It doesn't change what's shown yet. On a 41-video home feed: "anything about gaming" blocked 12 (Deadlock, TFT, League of Legends/K/DA, Mario Kart, Tekken, an IGN trailer, game-dev channels; 1–2 borderline), "anything about AI" blocked 3 (ChatGPT, "AI slop", AI code review), no clear false alarms. The channel name fixed the IGN trailer. Misses: titles with no topic words ("The Balance Patch NEEDS to Address This"), hashtag-only Shorts (Shorts carry no channel name in the data).
+- **Live filtering (on):** home tiles and a watch page's related videos stay invisible until judged; rejected ones are removed (`display: none`), so the rest close up. Tiles appear strictly in page order (a tile shows only once every tile before it is decided; one that stays undecided for 5 s stops holding the rest back), and shelves (Shorts, news) are moved with CSS `order` to the next full row, so the grid has no holes or short rows. The video being watched and the playlist panel are never filtered. Filters: `YOUTUBE_FILTERS` in `background.js` ("anything about gaming", "anything about AI").
+- **Also filtered:** search results (videos and Shorts shelves), channel pages (Home shelves, Videos and Shorts tabs) and the Shorts viewer. Data comes from the same reads plus `youtubei/v1/search`, `reel/reel_watch_sequence` (the viewer's upcoming shorts; only the next one carries its title) and `player` (each short's title as YouTube is about to play it). On a channel page the tiles show a view count where the channel would be, so the page's channel name is used. The Shorts viewer reuses one player: each new short is hidden and paused until judged, a rejected one is skipped by pressing YouTube's own next/previous button in the direction the user was going, and the short the viewer was opened on is never filtered. Tested: search and channel pages decided 1.6–2.4 s after opening; shorts shown 0–0.8 s after a swipe (1.8 s when two rejected ones were skipped); no leaks. A tile at the far end of a channel shelf whose thumbnail YouTube never loads stays hidden (it doesn't hold the others back).
+- **Popup (`popup.html`, Rudder wordmark):** model status and setup (download / import), YouTube filtering on/off with this session's checked/hidden counts, the filter sentences (add, edit in place, remove; any number; each with its hidden count). No chat: Rudder doesn't need it (the background page's chat code remains for the snapshot viewer, a developer tool). Settings live in `browser.storage.local["yt-settings"]`; a change makes open YouTube tabs decide every video again. Verdicts are remembered per video and per filter sentence, so removing a filter is instant (0.5 s on screen) and adding one checks only that one.
+- **Strict mode (2026-10-31, the user's choice: over-block rather than let upsetting videos through).** A Patrick Stewart death report from ITV News got past "news", "anything about death" and "anything depressing". Weak points found: the probe cleared titles below its gate without asking the judge (one-word filters make weak probes); failed checks showed the video; ~45 filters were joined into one huge judge question near the reader's 512-token limit. Now:
+  - **Keyword layer** (`youtube/keywords.js`, no model, instant): each filter's words, their forms and a built-in list of related words (death → dies, died, obituary…; news → news channels; gaming → game names…) matched against title + channel. Split at "or"/commas; every content word of an alternative must appear. A match hides the video before the model is even loaded. Checked on CPU against the user's 43 filters: `node tests/keywords-check.mjs` (catches the ITV video 3 ways; benign titles pass).
+  - **Default list:** the user's 43 filters merged into 11 (video games; AI; tech companies, coding or cyber security; jobs, stocks, the rich or the poor; news, war or death; violent, angry, mean or offensive; depressing, doom inducing, mood ruining or about the future; motivational; a last this or last that; vlogbrothers; cf3). The keyword check confirms nothing the 43 caught on the test titles is lost. Then grown to 23 with 12 common upsetting topics (politics; crime and scams; disasters; illness; drama and exposés; rage bait and clickbait; scary or disturbing; dieting and body image; conspiracies and culture wars; animal cruelty; breakups and toxic relationships; climate), each with its own word list. Then 8 relapse-trigger filters (alcohol; drugs, cigarettes, vaping; gambling, betting, casinos incl. loot boxes and crypto trading; sexual or suggestive; binge eating, junk food, food challenges; shopping, spending, hauls; self-harm, suicide, eating disorders; addiction, relapse, withdrawal incl. sobriety stories): 31 defaults. Saved settings older than `SETTINGS_V` 4 are replaced by the defaults once. CPU check: 46 upsetting titles across every topic caught (except a Deadlock build that never names the game), 20 ordinary ones (cooking, music, yoga, travel, chess, football, pets…) shown. Related words are matched as written; only the filter's own words are stemmed (stemming everything made "lofi beats" match "beating").
+  - **Probe gate 1.0** for every filter (was 1.5 / 2.5) and **judge must say No firmly** (`CASCADE_STRICT`, t −8: with a probe peak of 2 the No margin must be below −5).
+  - **Judge questions of ≤ 8 filters**, short filters asked as "anything about X".
+  - **Failed checks hide** (not remembered; checked again next session). One filter hiding a video is enough; the rest aren't checked.
+  - **Also covered:** Subscriptions/Trending/topic pages; autoplay only goes ahead if the next video has passed (otherwise YouTube's Cancel is pressed); the player's end-screen wall, end cards and in-player grids are always hidden. Not your playlists or history.
+  - Decision logic checked on CPU with a fake browser and judge: `node tests/intercept-check.mjs`. Not yet run live (no GPU while the user games): the judge's speed with ~45 filters at gate 1.0, and the autoplay / end-screen selectors.
+- **Thumbnails (2026-10-31): scored as image tokens, never written out.** `vision.js` runs Gemma 4's own vision encoder (ONNX `vision_encoder_q4`, 112 MB, downloaded once from Hugging Face into the extension's cache) on the GPU with onnxruntime-web 1.30 (WebGPU, vendored by `npm install`), 8 thumbnails per call (176 ms each; one per call costs ~0.9 s). Each thumbnail's 66 image tokens are read in the same pass as its title (`[prefix] <|image> … <image|> 
+ title`); every filter's probe scores them (average of the 3 highest image tokens), standardised per filter against 40 ordinary thumbnails in `calib/` (saved per filter in storage, so only new filters pay the ~11 s). Above `IMAGE_TAU` 4.5: hidden, and the title isn't judged.
+  - Threshold, with the 29 model filters, calibrated on 20 / tested on 20 unseen ordinary thumbnails: 2.5 hid 11/20 ordinary, 3.5 6/20, **4.5 3/20**; the "my husband died" thumbnail scored 13.5 under "news, war or death", gambling 7–34; subtle photos are often missed (8/24 research topics). Known over-blocks at 4.5: a few odd ones (sardines under "alcohol"), the price of strictness.
+  - Tried and dropped: the image in the judge's prompt (it read "my husband died" but said No to "death", −9.1); Gemma writing the thumbnail out (accurate but ~1.5 s per thumbnail: one token per call per thumbnail; one call for all sequences aborts the runtime).
+  - Pitfalls: onnxruntime makes its own GPU device; `gpu-fixes.js` took it for WebLLM's and moved the layer recorder there (every reading came back zeros): `rudderVisionStarting` keeps it out. Single-word filters ("cf3", "vlogbrothers") are names: keywords only.
+  - A video is judged once its thumbnail is read, or on its title alone if no thumbnail arrives within 3 s on screen (or 2 s after the page drew it from memory; the Shorts viewer uses titles). The queue waits 150 ms when short so thumbnails batch.
+  - Live (home page, 3 scrolls): no leaks; first screen decided ~16 s after the model was ready (encoder start included), new screens 0–10 s after YouTube built them.
+- **Model on demand:** it loads when YouTube has videos to check (not at Firefox start or when the popup opens), filtering keeps it loaded, and it's freed 10 minutes after the last use. The popup shows "checking N more…" while videos wait.
+- **How it keeps up** (layers, cheapest first):
+  0. **Memory:** every verdict is saved per filter set in `browser.storage.local` (newest 5000), so videos seen before, even in an earlier Firefox session, are decided instantly.
+  1. **Judging ahead:** every video is queued the moment YouTube's data arrives (before its tile exists); tiles' distance from the screen only sets the order.
+  2. **Per-filter gates:** the probe score below which the judge isn't asked, tuned by hand-labelling 129 feed videos: AI 2.5 (judge runs 30% → 11%, nothing missed), gaming 1.5 (its probe is weak on short titles).
+  3. **One judge question per video** for all its unsure filters (`Filter: "anything about gaming" or "anything about AI"`; same Yes/No wording the thresholds were tuned on; the verdict is per video). 0.78 questions per video.
+  4. **Batches:** WebLLM's memory (KV cache) is created with room for one sequence (`defaultMaxNumSequence = 1`; adding a second aborts the runtime with `exit(1)`), and the model has no `batch_prefill`. So the filter creates its own KV cache with room for 16 (the model's own `create_tir_paged_kv_cache`) and runs up to 16 titles / 512 tokens through `prefill_tokens` in one GPU pass, each in its own sequence, copying only layer 7's output. The judge: every prompt but its last token in one pass, then one `decode_tokens` step per prompt (its own sequence), all scores copied to the CPU behind a single wait. Identical probe scores to one-at-a-time reading (max difference 0.000 over 140–178 scores); judge scores within 0.3. The chat's memory is never touched.
+  - **Fast reader:** titles and judge prompts are read in one pass, not token by token. Firefox's multi-token kernel took ~21 s to build (18.5 s of it one program, `batch_prefill_ragged_kv_kernel`, slowed by Firefox zero-filling its 10,240 shared values); `packPrefillF16` in `gpu-fixes.js` stores its q/k tiles two f16 per u32 (k's slots reordered so each thread's four values share one), cutting the build to ~13 s with identical output. Done once per session during model load (`wide`). Building it in the background from the start (code saved from the previous session) gains nothing: Firefox builds GPU programs on the same thread that uploads the weights, so the weight load grew by the same ~10 s (tested, ready at 28.2 s vs 28.3 s). The kernel for adding onto existing memory takes 38 s, so it's avoided: the judge reads its whole prompt from empty memory.
+- **Results** (signed-in feed, test scrolling as a stand-in for the user): reading ~25–36 ms per title, judging ~65–87 ms per question; each screen fully decided 0–0.5 s after YouTube built it; a home reload 2.3 s; a watch page's related list 3.3 s after the click; 0 holes, 0 short rows, no leaks (nothing unjudged or rejected ever visible). Before the layers: ~1 s per title and a median of 18 s from reading to showing.
+- **Still slow:** the first screen after Firefox starts waits for the model (~8 s load, ~7 s warm-up, ~13 s fast-reader build: ready at ~28 s). Known wrong blocks: a few word matches the judge doesn't veto (Big Brother "game", 3D-printing "Benchy", fan edits).
+- `npm start` opens YouTube; the test profile is signed in.
+
+
+## Your own algorithm: learning from 👍 / 👎 (2026-10-31)
+
+Rudder learns what the user wants from two items it adds to every feed video's ⋮ menu: **Rudder: more like this** / **Rudder: less like this** (copies of YouTube's own items, so they look native; both menu styles: the newer one on home and the watch sidebar, the older Polymer one in search, whose own text element resets itself, so the label is a plain element). The menu belongs to the tile whose ⋮ was clicked last; items are added a few times over the next second because YouTube builds the menu after the click. 👎 hides the video at once; a short note confirms; every open YouTube tab then re-checks its tiles (a re-check never re-hides a shown tile unless it's now rejected).
+- `youtube/personal.js`: every judged video gets a fingerprint (Gemma's layer-7 readings of its title and of its thumbnail, averaged and shrunk to 256 numbers each by a fixed random projection; stored as Int8 with its verdicts). Examples: clicks (weight 1) and videos shown and not 👎'd (weight 0.2), class-balanced logistic regression retrained after every click (milliseconds). Starts predicting after 3 👎 and 3 videos that were fine.
+- Decision order: your 👍/👎 on that video; keyword matches (always hidden); channels with 2+ 👎 and no 👍 (hidden); "like videos you disliked" (> 75%) hidden; a liked channel or "like videos you liked" (< 10%) protects from model-only hides; then the filters' models.
+- Popup: what it has learned, the 25 most recently hidden videos with why and a **👍 Fine** button (shows it, learns from it), and "Forget everything it learned" (second click confirms; popups can't use confirm()).
+- Checks: `node tests/personal-check.mjs` (made-up fingerprints: after 4 👎 of one kind it hides 20/20 new ones like them and 0/20 of another kind; channel rule; explicit 👍; survives restart). Live: items appear in both menu styles, 👎 hides + confirms + closes the menu, the learner starts at the 3rd 👎 and then hid an unseen look-alike, 👍 Fine brings a video back, Forget clears everything.
+- Pitfalls fixed: "shown" records made before the saved data loaded were overwritten (now merged); a click on a never-fingerprinted video waited for the GPU (now counts at once, fingerprint added later, and not re-added if forgotten meanwhile).
+
+## Rudder test set (research/testset, 2026-10-31)
+
+412 YouTube videos (title, channel, thumbnail) labelled hide/show under the 31 default filters: 273 from YouTube searches (5 per topic: 32 topics the filters cover, 25 harmless ones; a query's topic is its label, hand-fixed where the video wasn't what the query was after), the user's 9-video screenshot (their verdicts), and the 130 thumbnail-benchmark items relabelled (e.g. "stock market investing" → hide under stocks, "hot dog eating contest" → hide under food challenges, bees/space/football → show). Split alternately into dev (thresholds) and test (results); the screenshot is always test.
+- `collect.py` (searches + thumbnails), `build.py` (merge + labels + split), `features.mjs` (each model's raw output, cached; Node, CPU), `score.mjs` (pipelines, dev-tuned thresholds, test results). Data lives outside the repo (scratchpad `testset/`); re-run the scripts to rebuild.
+- CPU speeds (one thread pool, no GPU): Tesseract 61 ms per thumbnail, Florence-2 base OCR 590–770 ms, SigLIP 2 base 75 ms (all filter prompts), DeBERTa zero-shot (29 filters) see below.
+- OCR: Florence-2 reads real thumbnails far better than Tesseract ("JSRF / JET SET RADIO FUTURE / SEGA", "spread love", "finished my phd and my husband died lol"; Tesseract mostly noise outside plain text). Use its line-by-line mode (`<OCR_WITH_REGION>`): plain `<OCR>` glues lines without spaces ("stretchmy burnsTHIS").
+- **Results (test half, thresholds tuned on dev to wrongly hide at most ~10% of harmless videos):**
+
+  | Pipeline | Catches | Wrongly hides | Screenshot (7 to hide) |
+  |---|---|---|---|
+  | Keywords on title | 73% | 6% | 3 |
+  | + keywords on Tesseract OCR | 78% | 7% | 5 |
+  | + keywords on Florence-2 OCR | 81% | 10% | 6 |
+  | + SigLIP (v1 or 2) zero-shot on the image | 81–82% | 11% | 6 |
+  | + DeBERTa-v3 xsmall zero-shot on title + OCR | 81% | 10% | 6 |
+  | **+ DeBERTa-v3 base zero-shot (MoritzLaurer zeroshot-v2.0) on title + OCR** | **90%** | 11% | 6 (all but the "hug" short; also hides Edmund/candy) |
+  | Learned from the dev labels (logistic regression on all scores, standing in for the user's own clicks) | 94% at 10% (96% at 15%) | 10–15% | 5–6 |
+
+  SigLIP zero-shot alone catches 29% at 12% wrong: image-text prompts for topics like "depressing" barely separate. The zero-shot text classifier on title + thumbnail text is the strong signal; learning from labels adds a few more points on top.
+  - CPU per video: DeBERTa base 0.45–0.5 s for all 29 filters (xsmall 0.19 s); on the GPU both should be several times faster (not yet measured).
+- Keyword fixes from the test set: "news" was stemmed to "new" (matched every "New …"), bare "hack(s)" caught life hacks, "recovery" caught yoga, "BBC"/"ITV" caught nature documentaries. Keywords on titles: 73% caught, 6% of harmless wrongly hidden (test).
+
+## Rudder without an LLM (2026-10-31)
+
+The hunts showed keywords did ~90% of the hiding (175/200, 187/216, 191/209) and Gemma's own yes/no calls were right
+about half the time, for a ~45 s load and 2.8 GB of graphics memory. Rudder now runs on the processor only:
+1. keywords on title + channel (instant);
+2. the same keywords on the thumbnail's text, read by Tesseract (`extension/ocr.js`, two workers, words with confidence
+   ≥ 60, matches of 4+ letters only: Tesseract turns noise into short words like "ill");
+3. your 👍/👎 learner, now on MiniLM fingerprints of "title — channel" (`extension/text.js`, ~5 ms); clicks saved
+   with Gemma fingerprints are re-read from their titles (`learner.reprint`).
+First video shown ~2.5 s after opening YouTube (was ~45 s cold). Gemma files (WebLLM, probe, vision, gpu-fixes, bench,
+calib, snapshot, import) were removed from the extension; `index.html` and the research scripts still have the Gemma
+work. Your own filter sentences now work through their words and `youtube/keywords.js`'s related words only.
+
+## Filter hunt on live YouTube (2026-10-31)
+
+Seven runs over the home feed, three watch-page sidebars, four searches and the Shorts viewer (~500 videos each),
+every shown and hidden video read by hand. Fixes, in order of impact:
+- **Hashtags never matched** (`#deadlock`): the `#` stayed on the word. Stripped now.
+- **Error thumbnails**: a size YouTube doesn't have comes back as an error with a grey placeholder; every such video was
+  judged on the same grey picture (all "politics 5.6"). Error responses are skipped (`intercept.js` badImage).
+- **One group Yes hid a video under every filter in the group** (funny animals as "gaming" via "animal cruelty"). A filter
+  the group answer would hide under is now asked again on its own.
+- **Thumbnail bar 4.5 → 7**: between them about half were harmless (Star Wars, football, fries).
+- **Keywords**: harmless phrases removed before matching (`SAFE`: Star Wars, ground beef, ghost costume…); bare words that
+  over-blocked made phrase-only (breaking → breaking news, ranked, burnt); many misses added (Sonic/Crush 40, Toby Fox,
+  Deadlock heroes, League champions, streamers, Zelensky, Big Brother/h3, Breaking Bad, lean, stampede…). Keyword checks
+  now run on every filter each time, so new words apply to videos remembered as cleared.
+- **Judge threshold** tried at −4.5: right as often as wrong between −4.5 and −8, so it stays −8 (strict wins ties).
+Left to your 👍/👎: drum & bass mixes the judge calls "gaming", Japanese-only titles, creators whose names are common words.
+The hunt's examples are in `tests/keywords-check.mjs`.
+
+## Rules of thumb
+
+- **Measure before you fix.** Count GPU calls and time each program build. Every big win here came from a measurement, not a guess.
+- **Check fixes are exact.** Compare the replies word for word with the original, and test in Chrome with the Firefox-only code forced on.
+- **Never test GPU stuff while gaming.**

@@ -1,15 +1,15 @@
-/* Home tiles and the watch page's related videos stay invisible until youtube/feed.js marks them gemma-verdict="show"
+/* Home tiles and the watch page's related videos stay invisible until youtube/feed.js marks them rudder-verdict="show"
    (an attribute + CSS). visibility keeps each one's size, so nothing jumps and YouTube still loads
    thumbnails as they near the screen. The video being watched and the playlist panel are never touched. */
-ytd-browse[page-subtype="home"] ytd-rich-item-renderer:not([gemma-verdict="show"]),
-ytd-search :is(ytd-video-renderer, grid-shelf-view-model ytm-shorts-lockup-view-model-v2):not([gemma-verdict="show"]),
-ytd-browse[page-subtype="channels"] :is(ytd-rich-item-renderer, ytd-shelf-renderer yt-lockup-view-model, ytd-reel-shelf-renderer ytm-shorts-lockup-view-model-v2):not([gemma-verdict="show"]),
-ytd-shorts:not([gemma-verdict="show"]) ytd-reel-video-renderer,
-ytd-shorts:not([gemma-verdict="show"]) :is(#shorts-panel-container, ytd-engagement-panel-section-list-renderer), /* comments, description */
-ytd-shorts .reel-video-in-sequence-new:not([gemma-verdict="show"]),
-ytd-browse:not([page-subtype="home"]):not([page-subtype="channels"]):not([page-subtype="playlist"]):not([page-subtype="history"]) :is(ytd-rich-item-renderer, ytd-video-renderer, ytd-grid-video-renderer, ytd-shelf-renderer yt-lockup-view-model, ytd-reel-shelf-renderer ytm-shorts-lockup-view-model-v2):not([gemma-verdict="show"]),
-.ytp-autonav-endscreen-countdown-overlay:not([gemma-verdict="show"]),
-ytd-watch-next-secondary-results-renderer :is(yt-lockup-view-model, ytd-compact-video-renderer):not([gemma-verdict="show"]) {
+ytd-browse[page-subtype="home"] ytd-rich-item-renderer:not([rudder-verdict="show"]),
+ytd-search :is(ytd-video-renderer, grid-shelf-view-model ytm-shorts-lockup-view-model-v2):not([rudder-verdict="show"]),
+ytd-browse[page-subtype="channels"] :is(ytd-rich-item-renderer, ytd-shelf-renderer yt-lockup-view-model, ytd-reel-shelf-renderer ytm-shorts-lockup-view-model-v2):not([rudder-verdict="show"]),
+ytd-shorts:not([rudder-verdict="show"]) ytd-reel-video-renderer,
+ytd-shorts:not([rudder-verdict="show"]) :is(#shorts-panel-container, ytd-engagement-panel-section-list-renderer), /* comments, description */
+ytd-shorts .reel-video-in-sequence-new:not([rudder-verdict="show"]),
+ytd-browse:not([page-subtype="home"]):not([page-subtype="channels"]):not([page-subtype="playlist"]):not([page-subtype="history"]) :is(ytd-rich-item-renderer, ytd-video-renderer, ytd-grid-video-renderer, ytd-shelf-renderer yt-lockup-view-model, ytd-reel-shelf-renderer ytm-shorts-lockup-view-model-v2):not([rudder-verdict="show"]),
+.ytp-autonav-endscreen-countdown-overlay:not([rudder-verdict="show"]),
+ytd-watch-next-secondary-results-renderer :is(yt-lockup-view-model, ytd-compact-video-renderer):not([rudder-verdict="show"]) {
   visibility: hidden !important;
   /* visibility alone can be undone by a child (YouTube's player and thumbnails set their own visibility: visible, so a
      rejected short still showed while being skipped); opacity on the container can't be */
@@ -21,11 +21,11 @@ ytd-watch-next-secondary-results-renderer :is(yt-lockup-view-model, ytd-compact-
   display: none !important;
 }
 /* rejected by the filter (or an ad): taken out, so the rest close up */
-ytd-browse[page-subtype="home"] ytd-rich-item-renderer[gemma-verdict="block"],
-ytd-browse:not([page-subtype="home"]):not([page-subtype="channels"]):not([page-subtype="playlist"]):not([page-subtype="history"]) :is(ytd-rich-item-renderer, ytd-video-renderer, ytd-grid-video-renderer, ytd-shelf-renderer yt-lockup-view-model, ytd-reel-shelf-renderer ytm-shorts-lockup-view-model-v2)[gemma-verdict="block"],
-ytd-search :is(ytd-video-renderer, grid-shelf-view-model ytm-shorts-lockup-view-model-v2)[gemma-verdict="block"],
-ytd-browse[page-subtype="channels"] :is(ytd-rich-item-renderer, ytd-shelf-renderer yt-lockup-view-model, ytd-reel-shelf-renderer ytm-shorts-lockup-view-model-v2)[gemma-verdict="block"],
-ytd-watch-next-secondary-results-renderer :is(yt-lockup-view-model, ytd-compact-video-renderer)[gemma-verdict="block"] {
+ytd-browse[page-subtype="home"] ytd-rich-item-renderer[rudder-verdict="block"],
+ytd-browse:not([page-subtype="home"]):not([page-subtype="channels"]):not([page-subtype="playlist"]):not([page-subtype="history"]) :is(ytd-rich-item-renderer, ytd-video-renderer, ytd-grid-video-renderer, ytd-shelf-renderer yt-lockup-view-model, ytd-reel-shelf-renderer ytm-shorts-lockup-view-model-v2)[rudder-verdict="block"],
+ytd-search :is(ytd-video-renderer, grid-shelf-view-model ytm-shorts-lockup-view-model-v2)[rudder-verdict="block"],
+ytd-browse[page-subtype="channels"] :is(ytd-rich-item-renderer, ytd-shelf-renderer yt-lockup-view-model, ytd-reel-shelf-renderer ytm-shorts-lockup-view-model-v2)[rudder-verdict="block"],
+ytd-watch-next-secondary-results-renderer :is(yt-lockup-view-model, ytd-compact-video-renderer)[rudder-verdict="block"] {
   display: none !important;
 }
 /* Shorts rows refilled by Rudder (feed.js fillShorts): one row only; a row that can't be filled goes */

@@ -1,5 +1,7 @@
 # Rudder gRPC API
 
+For how Rudder works as a whole, see [docs/how-it-works.md](docs/how-it-works.md).
+
 Rudder's filtering runs as a **pipeline** that apps on your computer can read, change or replace completely. Apps can also run their own stages (a local LLM, anything), receive every video Rudder sees in one fixed format, show their own panels in Rudder's popup, test videos, and time every stage.
 
 ```
@@ -20,7 +22,7 @@ python bridge.py
 
 Then open Firefox with Rudder; it connects to the bridge within 5 seconds. Apps are separate projects that connect to `127.0.0.1:7833`.
 
-To try every call by hand first, see `POSTMAN.md`: Postman finds the calls on its own (server reflection) and the guide has a ready message for each.
+To try every call by hand first, see [docs/postman.md](docs/postman.md): Postman finds the calls on its own (server reflection) and the guide has a ready message for each.
 
 ## The pipeline
 

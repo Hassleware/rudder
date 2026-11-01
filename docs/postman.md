@@ -1,6 +1,6 @@
 # Rudder in Postman
 
-Postman can call every part of Rudder's API (`API.md`) by hand: no code, nothing to import.
+Postman can call every part of Rudder's API ([API.md](../API.md)) by hand: no code, nothing to import.
 
 ## Set up once
 

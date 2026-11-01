@@ -1,5 +1,5 @@
 // CPU-only check of Rudder's keyword layer against the user's real filter list (from the popup, 2026-10-31).
-// Run: node research/keywords-check.mjs
+// Run: node tests/keywords-check.mjs
 import { keywordMatch } from "../extension/youtube/keywords.js";
 
 // the merged default list (43 → 11); the old list is kept below to check nothing it caught is lost
@@ -21,7 +21,7 @@ const MUST_HIDE = [
   ["Minecraft Beaten In 53 Seconds [FWR]", "HanabiYaki"],
   ["I Spent 100 Days Speedrunning Minecraft", "Ludwig"],
   ["Overwatch 2 Season 20 tier list", "KarQ"],
-  ["The Secret Infernus Build", "2Retry"], // Deadlock hero, no game name: keyword layer can't know → model's job
+  ["The Secret Infernus Build", "2Retry"], // Deadlock hero, no game name: keywords can't know → your 👍 / 👎's job
   ["OpenAI just released GPT-6", "Fireship"],
   ["Apple Lost the AI Race", "Marques Brownlee"],
   ["Massive layoffs hit the tech industry", "CNBC"],

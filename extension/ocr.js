@@ -1,6 +1,6 @@
 // Thumbnail text, read by Tesseract (tesseract.js, vendored by `npm install`) on the processor: about 60 ms a thumbnail,
 // no GPU. The words go through the same keyword check as titles (youtube/keywords.js). Chosen on the Rudder test set
-// (NOTES.md): keywords on title + Tesseract text caught 78% (title alone 73%). Florence-2 reads better (81%) but takes
+// (docs/history.md): keywords on title + Tesseract text caught 78% (title alone 73%). Florence-2 reads better (81%) but takes
 // ~0.7 s a thumbnail on the processor, and its GPU version doesn't run in Firefox.
 import Tesseract from "./vendor/tesseract/tesseract.esm.min.js";
 

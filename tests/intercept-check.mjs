@@ -2,7 +2,7 @@
 // stage kinds: stages run in order and the first hide or show decides; slow stages run in batches and only when
 // reached; a failing stage hides; fields reach later stages; changing the pipeline needs no new runs; test() traces
 // every stage without counting anything; YouTube's data becomes Rudder's video record.
-// Run: node research/intercept-check.mjs
+// Run: node tests/intercept-check.mjs
 const store = {};
 let onMessage = null;
 globalThis.browser = {

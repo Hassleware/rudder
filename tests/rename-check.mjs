@@ -1,5 +1,5 @@
 // Renaming the default filters must not change what they catch: every title in keywords-check.mjs and the live hunts
-// through the old and the new names, compiled to the same words. Run: node research/rename-check.mjs
+// through the old and the new names, compiled to the same words. Run: node tests/rename-check.mjs
 import fs from "node:fs";
 const { compile } = await import("../extension/youtube/keywords.js");
 const R = JSON.parse(fs.readFileSync(new URL("./filter-rename.json", import.meta.url), "utf8"));

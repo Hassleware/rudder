@@ -6,7 +6,7 @@
 //   thumbnail-text  the filters' words in its thumbnail's text, read by Tesseract (ocr.js, ~60 ms a thumbnail)
 // Apps on this computer can add their own stages (kind "app"), reorder or reconfigure these, or replace them all
 // (bridge/: API.md). Gemma (WebLLM on the GPU) judged videos until 2026-10-31; keywords did ~90% of the hiding and
-// Gemma's own calls were right about half the time, for a 45 s load and 2.8 GB of graphics memory (NOTES.md).
+// Gemma's own calls were right about half the time, for a 45 s load and 2.8 GB of graphics memory (docs/history.md).
 import { setEnabled, stats, setPrinter, recentHidden, feedback, forget, learner, test, redecide, recordOf, setSink, recheckTabs } from "./youtube/intercept.js";
 import { timed, timings, record } from "./timing.js";
 import { defineKind, setPipeline, getPipeline, kindNames, PASS } from "./pipeline.js";
@@ -17,7 +17,7 @@ import { fingerprint } from "./youtube/personal.js";
 import { startApi } from "./api.js";
 
 // The default filters: the user's own 43 merged into 11 (2026-10-31), plus common upsetting topics and relapse
-// triggers; each filter's words and youtube/keywords.js do the rest (checked with research/keywords-check.mjs).
+// triggers; each filter's words and youtube/keywords.js do the rest (checked with tests/keywords-check.mjs).
 const YOUTUBE_FILTERS = ["video games", "AI", "tech companies, coding, cyber security", "jobs, stocks, the rich, the poor", "news, war, death", "violent, angry, mean, offensive", "depressing, doom, mood ruining, the future", "motivational", "last this or last that", "vlogbrothers", "cf3",
   // grown on the user's request ("so social media can never make me feel upset again"): common upsetting topics
   "politics, elections, politicians", "crime, scams, true crime", "disasters, accidents, emergencies", "illness, disease, health scares", "drama, controversy, people being exposed", "rage bait, clickbait", "scary, horror, disturbing", "dieting, weight loss, body image", "conspiracies, culture wars", "animal cruelty, suffering", "breakups, cheating, toxic relationships", "climate, pollution",
@@ -153,7 +153,7 @@ const api = startApi({
 setSink((v, d) => api.video(recordOf(v), { hidden: d.state === "hide", decided_by: d.stage ?? "", why: d.why ?? "" }));
 applyYoutube(false);
 // the defaults used to be worded for the old model ("anything about video games"); saved lists get the plain names, and
-// filters you added yourself are kept as you wrote them (research/rename-check.mjs: same words, same matches)
+// filters you added yourself are kept as you wrote them (tests/rename-check.mjs: same words, same matches)
 const RENAMED = {"anything about video games": "video games", "anything about AI": "AI", "anything about tech companies, coding or cyber security": "tech companies, coding, cyber security", "anything about jobs, stocks, the rich or the poor": "jobs, stocks, the rich, the poor", "anything about news, war or death": "news, war, death", "anything violent, angry, mean or offensive": "violent, angry, mean, offensive", "anything depressing, doom inducing, mood ruining or about the future": "depressing, doom, mood ruining, the future", "anything motivational": "motivational", "anything about a last this or last that": "last this or last that", "anything about politics, elections or politicians": "politics, elections, politicians", "anything about crime, scams or true crime": "crime, scams, true crime", "anything about disasters, accidents or emergencies": "disasters, accidents, emergencies", "anything about illness, disease or health scares": "illness, disease, health scares", "anything about drama, controversy or someone being exposed": "drama, controversy, people being exposed", "anything rage bait or clickbait": "rage bait, clickbait", "anything scary, horror or disturbing": "scary, horror, disturbing", "anything about dieting, weight loss or body image": "dieting, weight loss, body image", "anything about conspiracies or culture wars": "conspiracies, culture wars", "anything about animal cruelty or suffering": "animal cruelty, suffering", "anything about breakups, cheating or toxic relationships": "breakups, cheating, toxic relationships", "anything about the climate or pollution": "climate, pollution", "anything about alcohol or drinking": "alcohol, drinking", "anything about drugs, cigarettes or vaping": "drugs, cigarettes, vaping", "anything about gambling, betting or casinos": "gambling, betting, casinos", "anything sexual, suggestive or adult": "sexual, suggestive, adult", "anything about binge eating, junk food or food challenges": "binge eating, junk food, food challenges", "anything about shopping, spending or hauls": "shopping, spending, hauls", "anything about self-harm, suicide or eating disorders": "self-harm, suicide, eating disorders", "anything about addiction, relapse or withdrawal": "addiction, relapse, withdrawal"};
 browser.storage.local.get("yt-settings").then((r) => {
   const saved = r["yt-settings"];
