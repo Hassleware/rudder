@@ -11,6 +11,7 @@ import { keywordMatch } from "./youtube/keywords.js";
 import { readThumbnail } from "./ocr.js";
 import { embed } from "./text.js";
 import { fingerprint } from "./youtube/personal.js";
+import { startApi, APP } from "./api.js";
 
 // The default filters: the user's own 43 merged into 11 (2026-10-31), plus common upsetting topics and relapse
 // triggers; each filter's words and youtube/keywords.js do the rest (checked with research/keywords-check.mjs).
@@ -28,13 +29,17 @@ const send = (msg) => ports.forEach((p) => p.postMessage(msg));
 // each video: its thumbnail's words through every filter's keywords, and its fingerprint for your algorithm
 const textOf = (v) => (v.channel ? `${v.title} — ${v.channel}` : v.title);
 const print = async (v) => ({ t: fingerprint(await embed([textOf(v)])), i: null });
+// an app's layer (api.js) is one more filter, "app: <name>": the app judges it; an error or no answer hides (strict)
 setJudge(async (videos, sentences) => {
-  const [words, vecs] = await Promise.all([
-    Promise.all(videos.map((v) => (v.image ? readThumbnail(v.image) : ""))), // an OCR error hides the batch (strict); checked again next time
+  const own = sentences.filter((s) => !s.startsWith(APP)), app = sentences.find((s) => s.startsWith(APP));
+  const [words, vecs, theirs] = await Promise.all([
+    Promise.all(videos.map((v) => (own.length && v.image ? readThumbnail(v.image) : ""))), // an OCR error hides the batch (strict); checked again next time
     embed(videos.map(textOf)).catch((err) => { console.warn("rudder: fingerprints unavailable:", err); return null; }),
+    app ? api.judge(videos) : null,
   ]);
   return videos.map((v, i) => ({
     verdicts: Object.fromEntries(sentences.map((s) => {
+      if (s === app) return [s, { blocked: !!theirs[i]?.blocked, verdict: String(theirs[i]?.why ?? (theirs[i]?.blocked ? "app" : "clear")).slice(0, 200) }];
       // short words ("ill", "ai", "rip") are what Tesseract most often makes out of noise: on thumbnails, 4+ letters
       const m = words[i] && keywordMatch(s, words[i]), sure = m && m.split(" + ").every((w) => w.length >= 4);
       return [s, sure ? { blocked: true, verdict: `thumbnail text: ${m}` } : { blocked: false, verdict: "clear" }];
@@ -47,11 +52,13 @@ learner.load().then(() => learner.reprint(print)).catch(() => {});
 
 // settings: the popup's filter list (any number of sentences) and the on/off switch, kept in extension storage
 const ytState = () => ({ type: "filters", enabled: yt.enabled, filters: yt.filters.map((f) => f.sentence), stats: stats(), recent: recentHidden() });
+let layer = null; // the connected app's layer ("app: <name>"), if any
 function applyYoutube(reset) {
-  setFilters(yt.filters.map((f) => f.sentence));
+  setFilters([...yt.filters.map((f) => f.sentence), ...(layer ? [layer] : [])]);
   setEnabled(yt.enabled && yt.filters.length > 0);
   if (reset) browser.tabs.query({ url: "https://www.youtube.com/*" }).then((ts) => ts.forEach((t) => browser.tabs.sendMessage(t.id, { type: "yt-reset" }).catch(() => {})));
   send(ytState());
+  api?.changed();
 }
 function setYoutubeSettings(msg) {
   if (msg.filters) {
@@ -66,6 +73,11 @@ function setYoutubeSettings(msg) {
   browser.storage.local.set({ "yt-settings": yt }).catch(() => {});
   applyYoutube(true);
 }
+const api = startApi({
+  state: () => ({ ...ytState(), type: "state", layer }),
+  setFilters: (filters) => setYoutubeSettings({ filters }),
+  setLayer: (name) => { if (name !== layer) { layer = name; applyYoutube(true); } },
+});
 applyYoutube(false);
 // the defaults used to be worded for the old model ("anything about video games"); saved lists get the plain names, and
 // filters you added yourself are kept as you wrote them (research/rename-check.mjs: same words, same matches)

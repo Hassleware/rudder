@@ -1,7 +1,7 @@
 // The toolbar popup: Rudder's statistics, and the filter list (add, remove). Everything lives in background.js.
 const $ = (id) => document.getElementById(id);
 const port = browser.runtime.connect();
-let filters = [];
+let filters = [], shown = "";
 const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt !== undefined) e.textContent = txt; return e; };
 const save = (list) => port.postMessage({ type: "set-filters", filters: list });
 const fill = (ul, items) => ul.replaceChildren(...(items.length ? items : [el("li", "empty", "—")]));
@@ -17,12 +17,14 @@ function render(state) {
 
   filters = state.filters;
   const top = Math.max(1, ...filters.map((f) => s.by[f] ?? 0));
-  if (document.activeElement?.closest?.("#list")) return; // don't rebuild under the cursor
-  fill($("list"), filters.map((f, i) => {
+  const key = JSON.stringify([filters, s.by]);
+  if (key === shown) return; // unchanged: don't rebuild under the cursor
+  shown = key;
+  fill($("list"), filters.map((f) => {
     const li = el("li"), bar = el("div", "bar"), del = el("button", "", "×");
     bar.style.width = `${(100 * (s.by[f] ?? 0)) / top}%`;
     del.setAttribute("aria-label", `Remove ${f}`);
-    del.addEventListener("click", () => save(filters.filter((_, k) => k !== i)));
+    del.addEventListener("click", () => save(filters.filter((x) => x !== f)));
     li.append(bar, el("span", "name", f), el("span", "n", s.by[f] ?? 0), del);
     return li;
   }));

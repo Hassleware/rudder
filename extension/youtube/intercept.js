@@ -162,7 +162,7 @@ function why(v) {
 // keywords also apply to videos remembered as cleared by the model)
 function keywords(v) {
   for (const s of filters) {
-    if (v.verdicts[s]?.blocked) continue;
+    if (v.verdicts[s]?.blocked || s.startsWith("app: ")) continue; // an app's layer (api.js) has no keywords
     const m = keywordMatch(s, v.title, v.channel);
     if (m) v.verdicts[s] = { blocked: true, verdict: "keyword: " + m };
   }
