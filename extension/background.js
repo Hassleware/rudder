@@ -41,7 +41,7 @@ setJudge(async (videos, sentences) => {
     })),
     print: vecs ? { t: fingerprint([vecs[i]]), i: null } : undefined,
   }));
-}, "keywords+ocr v2");
+}, "keywords+ocr v3");
 setPrinter(print);
 learner.load().then(() => learner.reprint(print)).catch(() => {});
 

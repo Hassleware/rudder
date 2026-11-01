@@ -239,7 +239,8 @@
       // the label in a plain element with the same look (the older menu's own text element resets itself)
       const title = item.querySelector(".ytListItemViewModelTitle, yt-formatted-string.title");
       if (title) { const span = Object.assign(document.createElement("span"), { className: title.className, textContent: label }); title.replaceWith(span); }
-      const icon = item.querySelector("svg")?.parentElement;
+      // the copied item's icon may not be drawn yet (YouTube's newer menu fills it in late): then its empty icon box
+      const icon = item.querySelector("svg")?.parentElement ?? item.querySelector(".yt-icon-shape, .ytIconWrapperHost, yt-icon");
       if (icon) icon.replaceChildren(svg(like));
       const act = (e) => {
         e.preventDefault(); e.stopImmediatePropagation();

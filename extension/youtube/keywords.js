@@ -27,7 +27,7 @@ const RELATED = {
   sad: "@depressing",
   angry: "angry anger rage furious fury outrage outraged rant rants slams slammed destroys destroyed meltdown screaming yelling heated hate hates toxic",
   doom: "doom doomed doomer apocalypse collapse collapsing end_of_the_world extinction crisis catastrophe catastrophic disaster warning warns dire threat crash crashing recession nuclear is_cooked might_be_cooked is_dying actually_finished",
-  gaming: "game games gaming gamer gamers gameplay playthrough walkthrough speedrun speedruns speedrunner esports esport twitch steam nintendo playstation ps5 ps4 xbox nintendo_switch switch_2 minecraft fortnite roblox valorant overwatch deadlock league_of_legends apex_legends call_of_duty gta pokemon zelda mario elden_ring dota cs2 counter_strike rainbow_six marvel_rivals tekken street_fighter smash_bros rpg fps mmo dlc patch_notes tier_list shooter shooters hero_shooter valve ost video_game_music k_da kda akali ahri evelynn kai'sa riot_games arcane jinx sega jsrf jet_set_radio ranked_up ranked_match ranked_games solo_queue elo sonic crush_40 toby_fox deltarune undertale clank resident_evil re9 re4 vinesauce jerma jerma985 angryjoe streamer streamers twitch_streamer gamedev game_dev devlog indie_game character_customization healing_reduction venator khaos_emerald chaos_emerald archmother powerspike power_spike mega_draft clash_royale character_guide fighting_souls maximilian_dood hideki_naganuma naganuma wii dmc dmc3 dmc5 devil_may_cry champ_select gragas yasuo yone teemo jhin thresh ezreal katarina vayne draven darius kayn viego aatrox zed kassadin malphite vyper infernus mcginnis vindicta viscous yamato holliday sinclair bebop lady_geist grey_talon aim_trainer kovaak kovaaks swiss_stage worlds2026 worlds_2026 achievement_hunter rooster_teeth northernlion 2ndjerma lowtiergod low_tier_god necrit supertf eternus itch.io pharah fareeha",
+  gaming: "game games gaming gamer gamers gameplay playthrough walkthrough speedrun speedruns speedrunner esports esport twitch steam nintendo playstation ps5 ps4 xbox nintendo_switch switch_2 minecraft fortnite roblox valorant overwatch deadlock league_of_legends apex_legends call_of_duty gta pokemon zelda mario elden_ring dota cs2 counter_strike rainbow_six marvel_rivals tekken street_fighter smash_bros rpg fps mmo dlc patch_notes tier_list shooter shooters hero_shooter valve ost video_game_music k_da kda akali ahri evelynn kai'sa riot_games arcane jinx sega jsrf jet_set_radio ranked_up ranked_match ranked_games solo_queue elo sonic crush_40 toby_fox deltarune undertale clank resident_evil re9 re4 vinesauce jerma jerma985 angryjoe streamer streamers twitch_streamer gamedev game_dev devlog indie_game character_customization healing_reduction venator khaos_emerald chaos_emerald archmother powerspike power_spike mega_draft clash_royale character_guide fighting_souls maximilian_dood hideki_naganuma naganuma wii dmc dmc3 dmc5 devil_may_cry champ_select gragas yasuo yone teemo jhin thresh ezreal katarina vayne draven darius kayn viego aatrox zed kassadin malphite vyper infernus mcginnis vindicta viscous yamato holliday sinclair bebop lady_geist grey_talon aim_trainer kovaak kovaaks swiss_stage worlds2026 worlds_2026 achievement_hunter rooster_teeth northernlion 2ndjerma lowtiergod low_tier_god necrit supertf eternus itch.io pharah fareeha oneyplays cyberpunk cyberware emulator emulators abrams bogur multiversus megagamecrushers gabe_newell blasphemous",
   game: "@gaming", games: "@gaming", gamer: "@gaming",
   overwatch: "overwatch ow2 mauga tracer genji kiriko junker_queen pharah fareeha",
   deadlock: "deadlock",
@@ -42,14 +42,14 @@ const RELATED = {
   shooter: "shooter shooters fps",
   hero: "hero heroes",
   mean: "mean meanest rude insult insults bully bullying roast roasted",
-  motivation: "motivation motivational motivated grind grindset discipline hustle sigma mindset edit edits phonk",
+  motivation: "motivation motivational motivated grind grindset discipline hustle sigma mindset edit edits phonk procrastination procrastinate productivity productive self_improvement brain_rot dopamine_detox",
   motivational: "@motivation",
-  coding: "coding code coder programming programmer developer developers software_engineer javascript typescript python rust golang leetcode web_dev devops github compiler compilers c++ c# zig linux kernel software andrew_kelley shader shaders hlsl glsl touchdesigner quickshell hyprland neovim dotfiles goto_conferences unit_tests",
+  coding: "coding code coder programming programmer developer developers software_engineer javascript typescript python rust golang leetcode web_dev devops github compiler compilers c++ c# zig linux kernel software andrew_kelley shader shaders hlsl glsl touchdesigner quickshell hyprland neovim dotfiles goto_conferences unit_tests thatguycodes vibe-versioning vibe_coding tsoding data_structures codesmith",
   code: "@coding", programming: "@coding", developer: "@coding",
   engineer: "engineer engineers engineering",
   stock: "stock stocks stock_market shares nasdaq s&p dow_jones invest investing investment investor trading trader crypto bitcoin wall_street",
   future: "future futures next_decade",
-  tech: "tech technology big_tech apple google microsoft meta amazon samsung nvidia intel amd tesla openai iphone android macbook silicon_valley elon_musk musk",
+  tech: "tech technology big_tech apple google microsoft meta amazon samsung nvidia intel amd tesla openai iphone android macbook silicon_valley elon_musk musk tsmc ddr5 ddr4 gpu gpus graphics_card pc_build",
   hack: "hacker hackers hacked hacking breach breached exploit exploits malware ransomware cyber cybersecurity security vulnerability",
   cyber: "@hack", security: "@hack", secuirty: "@hack",
   offensive: "offensive offended offend controversial slur slurs racist racism sexist sexism insult insults",
@@ -67,13 +67,13 @@ const RELATED = {
   illness: "illness ill sick sickness disease diseases cancer tumor tumour virus pandemic covid outbreak hospital hospitalised hospitalized diagnosis diagnosed terminal surgery heart_attack dementia alzheimer alzheimers chemo stroke burns scar scars injury injuries injured wound wounds burn_victim severe_burns",
   disease: "@illness", health: "@illness",
   scare: "scare scares scary scared",
-  drama: "drama dramas controversy controversial exposed exposing expose beef diss cancelled canceled apology apologizes apologises scandal allegations accused feud callout big_brother celebrity_big_brother cbb h3 h3h3 ethan_klein responded situation we_need_to_talk is_finished actually_finished feuds breaks_down storms_out walks_out",
+  drama: "drama dramas controversy controversial exposed exposing expose diss cancelled canceled apology apologizes apologises scandal allegations accused feud callout big_brother celebrity_big_brother cbb h3 h3h3 ethan_klein responded situation we_need_to_talk is_finished actually_finished feuds breaks_down storms_out walks_out cbb17 beef_with",
   controversy: "@drama", exposed: "@drama",
   bait: "bait ragebait rage_bait clickbait shocking gone_wrong you_won_t_believe",
   clickbait: "@bait",
   scary: "scary horror creepy creepiest haunted haunting ghost ghosts paranormal demon demonic nightmare terrifying disturbing gore gory jumpscare jumpscares creepypasta",
   horror: "@scary", disturbing: "@scary",
-  diet: "diet diets dieting calories calorie ozempic weight_loss lose_weight lost_weight fat skinny body_image looksmaxxing looksmaxing glow_up plastic_surgery bmi",
+  diet: "diet diets dieting calories calorie ozempic weight_loss lose_weight lost_weight fat skinny body_image looksmaxxing looksmaxing glow_up plastic_surgery bmi fake_muscles natty fake_natty steroids",
   weight: "weight_loss lose_weight lost_weight overweight",
   body: "body_image body_shaming",
   conspiracy: "conspiracy conspiracies illuminati flat_earth cover_up coverup propaganda hoax",
@@ -114,7 +114,8 @@ const RELATED = {
 };
 
 const SAFE = ["star wars", "breaking character", "ground beef", "roast beef", "beef stew", "ghost costume", "ghost emoji"];
-const words = (s) => (s.toLowerCase().replace(/[’']s\b/g, "").match(/[a-z0-9&+.#-]+/g) ?? []).map((w) => w.replace(/^[.#-]+|[.-]+$/g, "")).filter(Boolean); // "#deadlock" is "deadlock"
+// NFKC turns "fancy" Unicode letters (𝕭𝖑𝖆𝖘𝖕𝖍𝖊𝖒𝖔𝖚𝖘, 𝐛𝐨𝐥𝐝, ｗｉｄｅ) into plain ones first
+const words = (s) => (s.normalize("NFKC").toLowerCase().replace(/[’']s\b/g, "").match(/[a-z0-9&+.#-]+/g) ?? []).map((w) => w.replace(/^[.#-]+|[.-]+$/g, "")).filter(Boolean); // "#deadlock" is "deadlock"
 // light stemming: plurals and verb endings ("news" isn't a plural: stemmed it matched every "new")
 const NO_STEM = new Set(["news", "series", "species", "always", "less", "bias"]);
 export function stem(w) {
@@ -154,7 +155,7 @@ const cache = new Map();
 // what matched (e.g. "dies" or "hero + shooters"), or null
 export function keywordMatch(sentence, title, channel = "") {
   if (!cache.has(sentence)) cache.set(sentence, compile(sentence));
-  let text = `${title ?? ""} ${channel ?? ""}`.toLowerCase();
+  let text = `${title ?? ""} ${channel ?? ""}`.normalize("NFKC").toLowerCase();
   for (const p of SAFE) text = text.replaceAll(p, " ");
   const tokens = words(text), stems = tokens.map(stem), flat = ` ${tokens.join(" ")} `;
   for (const alt of cache.get(sentence)) {
