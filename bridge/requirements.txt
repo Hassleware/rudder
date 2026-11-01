@@ -1,3 +1,4 @@
 grpcio>=1.85
+grpcio-reflection>=1.85
 protobuf>=6.31
 websockets>=13

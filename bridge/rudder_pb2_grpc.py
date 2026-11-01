@@ -49,10 +49,35 @@ class RudderStub:
                 request_serializer=rudder__pb2.Filters.SerializeToString,
                 response_deserializer=rudder__pb2.State.FromString,
                 _registered_method=True)
-        self.Layer = channel.stream_stream(
-                '/rudder.v1.Rudder/Layer',
-                request_serializer=rudder__pb2.LayerMessage.SerializeToString,
-                response_deserializer=rudder__pb2.JudgeRequest.FromString,
+        self.GetPipeline = channel.unary_unary(
+                '/rudder.v1.Rudder/GetPipeline',
+                request_serializer=rudder__pb2.Empty.SerializeToString,
+                response_deserializer=rudder__pb2.Pipeline.FromString,
+                _registered_method=True)
+        self.SetPipeline = channel.unary_unary(
+                '/rudder.v1.Rudder/SetPipeline',
+                request_serializer=rudder__pb2.Pipeline.SerializeToString,
+                response_deserializer=rudder__pb2.Pipeline.FromString,
+                _registered_method=True)
+        self.Stage = channel.stream_stream(
+                '/rudder.v1.Rudder/Stage',
+                request_serializer=rudder__pb2.StageMessage.SerializeToString,
+                response_deserializer=rudder__pb2.StageRequest.FromString,
+                _registered_method=True)
+        self.WatchVideos = channel.unary_stream(
+                '/rudder.v1.Rudder/WatchVideos',
+                request_serializer=rudder__pb2.Empty.SerializeToString,
+                response_deserializer=rudder__pb2.VideoEvent.FromString,
+                _registered_method=True)
+        self.GetVideos = channel.unary_unary(
+                '/rudder.v1.Rudder/GetVideos',
+                request_serializer=rudder__pb2.VideosRequest.SerializeToString,
+                response_deserializer=rudder__pb2.VideoEvents.FromString,
+                _registered_method=True)
+        self.Test = channel.unary_unary(
+                '/rudder.v1.Rudder/Test',
+                request_serializer=rudder__pb2.TestRequest.SerializeToString,
+                response_deserializer=rudder__pb2.TestResults.FromString,
                 _registered_method=True)
         self.SetPanel = channel.unary_unary(
                 '/rudder.v1.Rudder/SetPanel',
@@ -69,18 +94,14 @@ class RudderStub:
                 request_serializer=rudder__pb2.TimingsRequest.SerializeToString,
                 response_deserializer=rudder__pb2.Timings.FromString,
                 _registered_method=True)
-        self.Test = channel.unary_unary(
-                '/rudder.v1.Rudder/Test',
-                request_serializer=rudder__pb2.TestRequest.SerializeToString,
-                response_deserializer=rudder__pb2.TestResults.FromString,
-                _registered_method=True)
 
 
 class RudderServicer:
     """Missing associated documentation comment in .proto file."""
 
     def GetState(self, request, context):
-        """Rudder's filters and statistics, as last reported by the extension.
+        """---- state ----
+        Rudder's filters and statistics, as last reported by Firefox.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -94,24 +115,64 @@ class RudderServicer:
         raise NotImplementedError('Method not implemented!')
 
     def SetFilters(self, request, context):
-        """Replace the filter list, the same as editing it in the popup. Fails with UNAVAILABLE if Firefox isn't connected.
+        """Replace the popup's filter list (what the "keywords" and "thumbnail-text" stages use unless configured otherwise).
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def Layer(self, request_iterator, context):
-        """A filtering layer. Send LayerMessage{hello} first, then answer each JudgeRequest with LayerMessage{verdicts} of the
-        same id: one Verdict per video, in order. A video is hidden if any layer hides it. No answer within 25 s, a wrong
-        count, or closing the stream mid-request hides those videos (strict). Closing the stream removes the layer.
+    def GetPipeline(self, request, context):
+        """---- the filtering pipeline ----
+        The stages in order, and the kinds a stage can be.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SetPipeline(self, request, context):
+        """Replace the whole pipeline: add, remove, reorder or configure stages, or swap in your own. No stages restores the
+        default. A wrong pipeline (an unknown kind, a repeated id, an "app" stage without a name) is refused and nothing
+        changes. Kept until changed again, across restarts.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Stage(self, request_iterator, context):
+        """Run "app" stages. Send StageMessage{hello} with your app's name, then answer each StageRequest with
+        StageMessage{reply} of the same id: one StageResult per video, in order. 25 s per request; no answer, a wrong
+        count or closing the stream mid-request hides those videos (strict). One connection per name.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def WatchVideos(self, request, context):
+        """---- video data ----
+        Every video Rudder decides, with its record and outcome, as it happens.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetVideos(self, request, context):
+        """The newest videos the bridge has seen (up to 500), newest first.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Test(self, request, context):
+        """Run videos through the current pipeline without showing, counting or remembering them. For tests.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def SetPanel(self, request, context):
-        """Show a panel in Rudder's popup, under the statistics. The same id replaces it; a panel with no blocks removes it.
-        Panels last until the bridge or Firefox restarts.
+        """---- panels in the popup ----
+        Show a panel in Rudder's popup. The same id replaces it; a panel with no blocks removes it. Lasts until the bridge
+        or Firefox restarts.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -125,14 +186,8 @@ class RudderServicer:
         raise NotImplementedError('Method not implemented!')
 
     def GetTimings(self, request, context):
-        """How long every stage takes, in ms (keywords, ocr, fingerprints, judge, layers, video: data to shown, ...).
-        """
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def Test(self, request, context):
-        """Check videos against the current filters and layers without showing, counting or remembering them. For tests.
+        """---- timing ----
+        How long every stage takes, in ms.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -156,10 +211,35 @@ def add_RudderServicer_to_server(servicer, server):
                     request_deserializer=rudder__pb2.Filters.FromString,
                     response_serializer=rudder__pb2.State.SerializeToString,
             ),
-            'Layer': grpc.stream_stream_rpc_method_handler(
-                    servicer.Layer,
-                    request_deserializer=rudder__pb2.LayerMessage.FromString,
-                    response_serializer=rudder__pb2.JudgeRequest.SerializeToString,
+            'GetPipeline': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetPipeline,
+                    request_deserializer=rudder__pb2.Empty.FromString,
+                    response_serializer=rudder__pb2.Pipeline.SerializeToString,
+            ),
+            'SetPipeline': grpc.unary_unary_rpc_method_handler(
+                    servicer.SetPipeline,
+                    request_deserializer=rudder__pb2.Pipeline.FromString,
+                    response_serializer=rudder__pb2.Pipeline.SerializeToString,
+            ),
+            'Stage': grpc.stream_stream_rpc_method_handler(
+                    servicer.Stage,
+                    request_deserializer=rudder__pb2.StageMessage.FromString,
+                    response_serializer=rudder__pb2.StageRequest.SerializeToString,
+            ),
+            'WatchVideos': grpc.unary_stream_rpc_method_handler(
+                    servicer.WatchVideos,
+                    request_deserializer=rudder__pb2.Empty.FromString,
+                    response_serializer=rudder__pb2.VideoEvent.SerializeToString,
+            ),
+            'GetVideos': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetVideos,
+                    request_deserializer=rudder__pb2.VideosRequest.FromString,
+                    response_serializer=rudder__pb2.VideoEvents.SerializeToString,
+            ),
+            'Test': grpc.unary_unary_rpc_method_handler(
+                    servicer.Test,
+                    request_deserializer=rudder__pb2.TestRequest.FromString,
+                    response_serializer=rudder__pb2.TestResults.SerializeToString,
             ),
             'SetPanel': grpc.unary_unary_rpc_method_handler(
                     servicer.SetPanel,
@@ -175,11 +255,6 @@ def add_RudderServicer_to_server(servicer, server):
                     servicer.GetTimings,
                     request_deserializer=rudder__pb2.TimingsRequest.FromString,
                     response_serializer=rudder__pb2.Timings.SerializeToString,
-            ),
-            'Test': grpc.unary_unary_rpc_method_handler(
-                    servicer.Test,
-                    request_deserializer=rudder__pb2.TestRequest.FromString,
-                    response_serializer=rudder__pb2.TestResults.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -274,7 +349,61 @@ class Rudder:
             _registered_method=True)
 
     @staticmethod
-    def Layer(request_iterator,
+    def GetPipeline(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/rudder.v1.Rudder/GetPipeline',
+            rudder__pb2.Empty.SerializeToString,
+            rudder__pb2.Pipeline.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SetPipeline(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/rudder.v1.Rudder/SetPipeline',
+            rudder__pb2.Pipeline.SerializeToString,
+            rudder__pb2.Pipeline.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Stage(request_iterator,
             target,
             options=(),
             channel_credentials=None,
@@ -287,9 +416,90 @@ class Rudder:
         return grpc.experimental.stream_stream(
             request_iterator,
             target,
-            '/rudder.v1.Rudder/Layer',
-            rudder__pb2.LayerMessage.SerializeToString,
-            rudder__pb2.JudgeRequest.FromString,
+            '/rudder.v1.Rudder/Stage',
+            rudder__pb2.StageMessage.SerializeToString,
+            rudder__pb2.StageRequest.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def WatchVideos(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/rudder.v1.Rudder/WatchVideos',
+            rudder__pb2.Empty.SerializeToString,
+            rudder__pb2.VideoEvent.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetVideos(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/rudder.v1.Rudder/GetVideos',
+            rudder__pb2.VideosRequest.SerializeToString,
+            rudder__pb2.VideoEvents.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Test(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/rudder.v1.Rudder/Test',
+            rudder__pb2.TestRequest.SerializeToString,
+            rudder__pb2.TestResults.FromString,
             options,
             channel_credentials,
             insecure,
@@ -371,33 +581,6 @@ class Rudder:
             '/rudder.v1.Rudder/GetTimings',
             rudder__pb2.TimingsRequest.SerializeToString,
             rudder__pb2.Timings.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def Test(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/rudder.v1.Rudder/Test',
-            rudder__pb2.TestRequest.SerializeToString,
-            rudder__pb2.TestResults.FromString,
             options,
             channel_credentials,
             insecure,

@@ -1,18 +1,20 @@
-// Rudder's background page. No large model: every YouTube video is checked on the processor, in milliseconds.
-//   1. keywords on its title and channel (youtube/keywords.js; instant, run in youtube/intercept.js)
-//   2. the same keywords on its thumbnail's text, read by Tesseract (ocr.js, ~60 ms a thumbnail)
-//   3. your own algorithm (youtube/personal.js): MiniLM reads each title into a fingerprint (text.js) and a small model
-//      learns what you don't want from your 👍 / 👎
-// Gemma (WebLLM on the GPU) did a yes/no check and read thumbnails as image tokens until 2026-10-31; live hunts showed
-// keywords did ~90% of the hiding and Gemma's own calls were right about half the time, for a 45 s load and 2.8 GB of
-// graphics memory (NOTES.md).
-import { setJudge, setFilters, setEnabled, stats, setPrinter, recentHidden, feedback, forget, learner, test } from "./youtube/intercept.js";
-import { timed, timings } from "./timing.js";
+// Rudder's background page. Every YouTube video goes through a pipeline of stages (pipeline.js), on the processor:
+//   your-clicks     your own 👍 / 👎 on this exact video
+//   keywords        the filters' words in its title and channel (youtube/keywords.js; instant)
+//   learned         your own algorithm (youtube/personal.js): MiniLM reads each title into a fingerprint (text.js) and
+//                   a small model learns what you don't want from your 👍 / 👎; channels you disliked
+//   thumbnail-text  the filters' words in its thumbnail's text, read by Tesseract (ocr.js, ~60 ms a thumbnail)
+// Apps on this computer can add their own stages (kind "app"), reorder or reconfigure these, or replace them all
+// (bridge/: API.md). Gemma (WebLLM on the GPU) judged videos until 2026-10-31; keywords did ~90% of the hiding and
+// Gemma's own calls were right about half the time, for a 45 s load and 2.8 GB of graphics memory (NOTES.md).
+import { setEnabled, stats, setPrinter, recentHidden, feedback, forget, learner, test, redecide, recordOf, setSink, recheckTabs } from "./youtube/intercept.js";
+import { timed, timings, record } from "./timing.js";
+import { defineKind, setPipeline, getPipeline, kindNames, PASS } from "./pipeline.js";
 import { keywordMatch } from "./youtube/keywords.js";
 import { readThumbnail } from "./ocr.js";
 import { embed } from "./text.js";
 import { fingerprint } from "./youtube/personal.js";
-import { startApi, APP } from "./api.js";
+import { startApi } from "./api.js";
 
 // The default filters: the user's own 43 merged into 11 (2026-10-31), plus common upsetting topics and relapse
 // triggers; each filter's words and youtube/keywords.js do the rest (checked with research/keywords-check.mjs).
@@ -27,38 +29,100 @@ let yt = { enabled: true, filters: YOUTUBE_FILTERS.map((sentence) => ({ sentence
 const ports = new Set();
 const send = (msg) => ports.forEach((p) => p.postMessage(msg));
 
-// each video: its thumbnail's words through every filter's keywords, and its fingerprint for your algorithm
+// ---- the built-in stage kinds (pipeline.js). "keywords" and "thumbnail-text" use the popup's filters unless their
+// config has its own { filters: [...] } ----
+const filtersOf = (config) => (Array.isArray(config.filters) ? config.filters.map(String) : yt.filters.map((f) => f.sentence));
 const textOf = (v) => (v.channel ? `${v.title} — ${v.channel}` : v.title);
 const print = async (v) => ({ t: fingerprint(await embed([textOf(v)])), i: null });
-// an app's layer (api.js) is one more filter, "app: <name>": the app judges it; an error or no answer hides (strict)
-setJudge(async (videos, sentences) => {
-  const own = sentences.filter((s) => !s.startsWith(APP)), app = sentences.find((s) => s.startsWith(APP));
-  const [words, vecs, theirs] = await Promise.all([
-    Promise.all(videos.map((v) => (own.length && v.image ? timed("ocr (a thumbnail)", () => readThumbnail(v.image)) : ""))), // an OCR error hides the batch (strict); checked again next time
-    timed("fingerprints (a batch)", () => embed(videos.map(textOf))).catch((err) => { console.warn("rudder: fingerprints unavailable:", err); return null; }),
-    app ? timed("layers (a batch)", () => api.judge(videos)) : null,
-  ]);
-  return videos.map((v, i) => ({
-    verdicts: Object.fromEntries(sentences.map((s) => {
-      if (s === app) return [s, { blocked: !!theirs[i]?.blocked, verdict: String(theirs[i]?.why ?? (theirs[i]?.blocked ? "app" : "clear")).slice(0, 200) }];
-      // short words ("ill", "ai", "rip") are what Tesseract most often makes out of noise: on thumbnails, 4+ letters
-      const m = words[i] && keywordMatch(s, words[i]), sure = m && m.split(" + ").every((w) => w.length >= 4);
-      return [s, sure ? { blocked: true, verdict: `thumbnail text: ${m}` } : { blocked: false, verdict: "clear" }];
-    })),
-    print: vecs ? { t: fingerprint([vecs[i]]), i: null } : undefined,
-  }));
-}, "keywords+ocr v3");
+defineKind("your-clicks", {
+  check(v) { const r = learner.judge(v); return r.explicit ? { decision: r.verdict, why: r.why } : PASS; },
+});
+defineKind("keywords", {
+  check(v, config) {
+    const t = performance.now();
+    try {
+      for (const s of filtersOf(config)) { const m = keywordMatch(s, v.title, v.channel); if (m) return { decision: "hide", why: `${s} (keyword: ${m})`, filter: s }; }
+      return PASS;
+    } finally { record("keywords (a video)", performance.now() - t); }
+  },
+});
+// hides; it only shows ("like videos you liked", a channel you liked) with config { can_show: true }, since a show
+// skips every stage after it
+defineKind("learned", {
+  check(v, config) {
+    if (v.print === undefined) return null; // fingerprint first
+    const r = learner.judge(v), fields = r.p != null ? { dislike_chance: r.p.toFixed(2) } : undefined;
+    return r.explicit || !r.verdict || (r.verdict === "show" && !config.can_show) ? { decision: "pass", fields } : { decision: r.verdict, why: r.why, fields };
+  },
+  async batch(vs) { // no fingerprint (an error) = the model says nothing; channels still count
+    const vecs = await timed("fingerprints (a batch)", () => embed(vs.map(textOf))).catch((err) => { console.warn("rudder: fingerprints unavailable:", err); return null; });
+    vs.forEach((v, i) => { v.print = vecs ? { t: fingerprint([vecs[i]]), i: null } : null; });
+  },
+});
+defineKind("thumbnail-text", {
+  needsImage: true,
+  check(v, config) {
+    if (!v.image) return PASS; // no thumbnail to read
+    if (v.ocr === undefined) return null;
+    const fields = { thumbnail_text: v.ocr };
+    // short words ("ill", "ai", "rip") are what Tesseract most often makes out of noise: on thumbnails, 4+ letters
+    for (const s of filtersOf(config)) {
+      const m = v.ocr && keywordMatch(s, v.ocr);
+      if (m && m.split(" + ").every((w) => w.length >= (config.min_letters ?? 4))) return { decision: "hide", why: `${s} (thumbnail text: ${m})`, filter: s, fields };
+    }
+    return { decision: "pass", fields };
+  },
+  async batch(vs) { await Promise.all(vs.map(async (v) => { v.ocr = await timed("ocr (a thumbnail)", () => readThumbnail(v.image)); })); },
+});
+// an app's stage, run over the bridge: config { name, when_missing: "hide" (default) | "pass", ...anything the app reads }
+const appKey = (config) => JSON.stringify(config);
+const DECISIONS = new Set(["hide", "show", "pass"]);
+defineKind("app", {
+  needsImage: true,
+  validate(config) { if (!config.name) throw new Error('an "app" stage needs config.name: the name its app says hello with'); },
+  check(v, config) {
+    const r = v.app?.[appKey(config)];
+    if (r) return r;
+    if (!api.has(config.name)) return config.when_missing === "pass" ? PASS : { decision: "hide", why: `app ${config.name} isn't running` };
+    return null;
+  },
+  async batch(vs, config) {
+    const rs = await api.stage(config.name, config, vs.map(recordOf));
+    if (rs.length !== vs.length) throw new Error(`app ${config.name} answered ${rs.length} of ${vs.length} videos`);
+    vs.forEach((v, i) => {
+      const decision = String(rs[i]?.decision ?? "pass").toLowerCase();
+      if (!DECISIONS.has(decision)) throw new Error(`app ${config.name}: unknown decision "${rs[i]?.decision}"`);
+      const fields = Object.fromEntries(Object.entries(rs[i]?.fields ?? {}).map(([k, x]) => [k, String(x).slice(0, 2000)]));
+      (v.app ??= {})[appKey(config)] = { decision, why: String(rs[i]?.why ?? "").slice(0, 200), fields };
+    });
+  },
+});
 setPrinter(print);
 learner.load().then(() => learner.reprint(print)).catch(() => {});
+
+// ---- the pipeline: the default, or the one an app set (kept in extension storage) ----
+const DEFAULT_PIPELINE = [{ id: "your-clicks", kind: "your-clicks" }, { id: "keywords", kind: "keywords" }, { id: "learned", kind: "learned" }, { id: "thumbnail-text", kind: "thumbnail-text" }];
+const pipelineState = () => ({ stages: getPipeline(), kinds: kindNames() });
+// an empty list restores the default; throws (changing nothing) if the list is wrong
+function usePipeline(list, save = true) {
+  setPipeline(list?.length ? list : DEFAULT_PIPELINE);
+  if (save) browser.storage.local.set({ pipeline: list?.length ? getPipeline() : null }).catch(() => {});
+  redecide();
+  applyYoutube(true);
+  return pipelineState();
+}
+setPipeline(DEFAULT_PIPELINE);
+browser.storage.local.get("pipeline").then((r) => {
+  if (!r.pipeline?.length) return;
+  try { usePipeline(r.pipeline, false); } catch (err) { console.warn("rudder: saved pipeline unusable, using the default:", err); }
+}).catch(() => {});
 
 // settings: the popup's filter list (any number of sentences) and the on/off switch, kept in extension storage
 // apps' panels for the popup (panel.js renders them; bridge: SetPanel)
 const panels = new Map();
-const ytState = () => ({ type: "filters", enabled: yt.enabled, filters: yt.filters.map((f) => f.sentence), stats: stats(), recent: recentHidden(), panels: [...panels.values()] });
-let layer = null; // the connected app's layer ("app: <name>"), if any
+const ytState = () => ({ type: "filters", enabled: yt.enabled, filters: yt.filters.map((f) => f.sentence), stages: getPipeline().map((s) => s.id), stats: stats(), recent: recentHidden(), panels: [...panels.values()] });
 function applyYoutube(reset) {
-  setFilters([...yt.filters.map((f) => f.sentence), ...(layer ? [layer] : [])]);
-  setEnabled(yt.enabled && yt.filters.length > 0);
+  setEnabled(yt.enabled);
   if (reset) browser.tabs.query({ url: "https://www.youtube.com/*" }).then((ts) => ts.forEach((t) => browser.tabs.sendMessage(t.id, { type: "yt-reset" }).catch(() => {})));
   send(ytState());
   api?.changed();
@@ -77,13 +141,16 @@ function setYoutubeSettings(msg) {
   applyYoutube(true);
 }
 const api = startApi({
-  state: () => ({ ...ytState(), type: "state", layer }),
+  state: () => ({ ...ytState(), type: "state" }),
   setFilters: (filters) => setYoutubeSettings({ filters }),
-  setLayer: (name) => { if (name !== layer) { layer = name; applyYoutube(true); } },
+  getPipeline: pipelineState,
+  setPipeline: (stages) => usePipeline(stages),
+  appsChanged: () => { recheckTabs(); send(ytState()); },
   setPanel: (p) => { if (!p) panels.clear(); else if (p.blocks?.length) panels.set(p.id, p); else panels.delete(p.id); send(ytState()); },
   timings,
   test,
 });
+setSink((v, d) => api.video(recordOf(v), { hidden: d.state === "hide", decided_by: d.stage ?? "", why: d.why ?? "" }));
 applyYoutube(false);
 // the defaults used to be worded for the old model ("anything about video games"); saved lists get the plain names, and
 // filters you added yourself are kept as you wrote them (research/rename-check.mjs: same words, same matches)

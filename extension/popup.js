@@ -17,9 +17,17 @@ function render(state) {
 
   filters = state.filters;
   const top = Math.max(1, ...filters.map((f) => s.by[f] ?? 0));
-  const key = JSON.stringify([filters, s.by]);
+  const key = JSON.stringify([filters, s.by, state.stages, s.byStage]);
   if (key === shown) return; // unchanged: don't rebuild under the cursor
   shown = key;
+  // the pipeline's stages in order (apps can change them), each with how many videos it hid
+  const most = Math.max(1, ...(state.stages ?? []).map((id) => s.byStage?.[id] ?? 0));
+  fill($("stages"), (state.stages ?? []).map((id) => {
+    const li = el("li"), bar = el("div", "bar");
+    bar.style.width = `${(100 * (s.byStage?.[id] ?? 0)) / most}%`;
+    li.append(bar, el("span", "name", id), el("span", "n", s.byStage?.[id] ?? 0));
+    return li;
+  }));
   fill($("list"), filters.map((f) => {
     const li = el("li"), bar = el("div", "bar"), del = el("button", "", "×");
     bar.style.width = `${(100 * (s.by[f] ?? 0)) / top}%`;
