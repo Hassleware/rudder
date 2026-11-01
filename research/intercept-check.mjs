@@ -8,7 +8,8 @@ globalThis.browser = {
   tabs: { sendMessage: async () => {} },
   storage: { local: { get: async () => ({ ...store }), set: async (o) => Object.assign(store, o), remove: async () => {} } },
 };
-const { setJudge, setFilters, verdict, stats } = await import("../extension/youtube/intercept.js");
+const { setJudge, setFilters, verdict, stats, test, videos } = await import("../extension/youtube/intercept.js");
+const { timings } = await import("../extension/timing.js");
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 let calls = [], fail = false;
 await setJudge(async (videos, sentences) => {
@@ -40,6 +41,16 @@ setFilters(["news", "anything about death", "anything about cooking"]); await wa
 expect("filter added: only the new filter is checked", JSON.stringify(calls.find((c) => c.ids.includes("v1"))?.sentences), JSON.stringify(["anything about cooking"]));
 setFilters(["anything about cooking", "anything depressing"]); await wait(300);
 expect("Patrick Stewart still hidden by 'depressing' keywords", ask("ps1", "Star Trek and X-Men actor Sir Patrick Stewart dies aged 86", "ITV News"), "block");
+// test(): the same decisions for an app's own tests, without showing, counting or remembering anything
+setFilters(["anything depressing", "anything about felines"]); await wait(300);
+const before = stats().checked, known = videos.size;
+const [t1, t2, t3] = await test([{ title: "Star Trek and X-Men actor Sir Patrick Stewart dies aged 86" }, { title: "Funny cats compilation" }, { title: "Learn guitar chords" }]);
+expect("test: keyword hit hidden", `${t1.hidden} ${/keyword/.test(t1.why)}`, "true true");
+expect("test: judge hit hidden", `${t2.hidden} ${t2.verdicts["anything about felines"]?.verdict}`, "true judge");
+expect("test: harmless shown", t3.hidden, false);
+expect("test: nothing counted or kept", `${stats().checked} ${videos.size}`, `${before} ${known}`);
+const stages = timings().map((t) => t.name);
+expect("timings: keywords, judge and test timed", ["keywords (a video)", "judge (a batch)", "test (a batch)"].every((n) => stages.includes(n)), true);
 console.log("stats:", JSON.stringify(stats()));
 console.log(bad ? `\n${bad} failed` : "\nCHECK OK");
 process.exit(bad ? 1 : 0);

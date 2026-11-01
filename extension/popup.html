@@ -35,6 +35,13 @@
   #add input { flex: 1; min-width: 0; padding: 4px 6px; border-right: 0; }
   #add input:focus { outline: 0; background: #fff; }
   #add button { padding: 0 10px; }
+  /* apps' panels (panel.js) */
+  .ptext { margin: 0 0 6px; overflow-wrap: anywhere; }
+  .panel > * + * { margin-top: 6px; }
+  .ptable { width: 100%; border-collapse: collapse; border: 2px solid var(--ink); }
+  .ptable th, .ptable td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--ink); overflow-wrap: anywhere; }
+  .ptable th { text-transform: uppercase; letter-spacing: .06em; font-size: 10px; border-bottom-width: 2px; }
+  .pbutton { padding: 2px 8px; margin-right: 6px; }
 </style>
 </head>
 <body>
@@ -61,6 +68,8 @@
     <div class="cell"><div class="num" id="model">off</div><div class="lbl">learned model</div></div>
   </div>
 
+  <div id="panels"></div>
+
   <h2>Filters</h2>
   <ul id="list"></ul>
   <form id="add"><input type="text" id="new" maxlength="200" aria-label="New filter" autocomplete="off"><button aria-label="Add filter">+</button></form>
@@ -72,6 +81,7 @@
   <ul id="recent"></ul>
 
 </main>
+  <script src="panel.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

@@ -11,6 +11,7 @@
 // the filter (setJudge) has passed it and its thumbnail has been read. Rejected tiles are removed from the grid.
 import { keywordMatch } from "./keywords.js";
 import { createLearner, packPrint, unpackPrint } from "./personal.js";
+import { record, timed } from "../timing.js";
 // your own algorithm: learns from the 👍 / 👎 in each video's ⋮ menu (youtube/personal.js)
 export const learner = createLearner();
 learner.load();
@@ -161,11 +162,13 @@ function why(v) {
 // the keyword layer (youtube/keywords.js): no model, runs the moment a title is known, on every filter (so new
 // keywords also apply to videos remembered as cleared by the model)
 function keywords(v) {
+  const t = performance.now();
   for (const s of filters) {
     if (v.verdicts[s]?.blocked || s.startsWith("app: ")) continue; // an app's layer (api.js) has no keywords
     const m = keywordMatch(s, v.title, v.channel);
     if (m) v.verdicts[s] = { blocked: true, verdict: "keyword: " + m };
   }
+  record("keywords (a video)", performance.now() - t);
 }
 export async function setJudge(fn, signature) {
   judge = fn;
@@ -253,7 +256,7 @@ async function work() {
         const sentences = key.split("\n");
         let results;
         try {
-          results = await judge(vs, sentences);
+          results = await timed("judge (a batch)", () => judge(vs, sentences));
         } catch (err) {
           if (/busy/i.test(err.message)) { queue.push(...vs); await new Promise((r) => setTimeout(r, 1000)); continue; }
           // strict: a failed check hides the video (not remembered, so it's checked again next session)
@@ -264,6 +267,7 @@ async function work() {
           v.queued = false;
           Object.assign(v.verdicts, results[k].verdicts);
           if (results[k].print) v.print = results[k].print;
+          if (!v.filteredAt && v.seenAt) record("video: data to verdict", now() - v.seenAt);
           v.filteredAt = now();
           remember(v);
           enqueue(v); // filters added meanwhile
@@ -305,13 +309,14 @@ browser.runtime.onMessage.addListener((msg, sender) => {
     if (sender.tab?.id >= 0) tabs.add(sender.tab.id);
     return Promise.resolve(Object.fromEntries(msg.tiles.map((t) => [t.id, verdict(t)])));
   }
-  if (msg?.type === "yt-shown") for (const id of msg.ids) { const v = videos.get(id); if (v) { v.shownAt ??= msg.at; learner.shown(v); } }
+  if (msg?.type === "yt-shown") for (const id of msg.ids) { const v = videos.get(id); if (v) { if (!v.shownAt && v.seenAt) record("video: data to shown", msg.at - v.seenAt); v.shownAt ??= msg.at; learner.shown(v); } }
   if (msg?.type === "rudder-feedback") return feedback(msg);
 });
 
 // A 👍 / 👎 from a video's ⋮ menu (or the popup): learn it, then every open YouTube tab re-checks what it shows, so
 // videos like a disliked one go at once.
-export async function feedback({ id, like, title, channel }) {
+export const feedback = (msg) => timed("feedback (a click)", () => learn1(msg));
+async function learn1({ id, like, title, channel }) {
   let v = videos.get(id);
   if (!v) videos.set(id, (v = { id, title, channel, order: ++order, source: "feedback", seenAt: now() }));
   v.title ??= title; v.channel ??= channel;
@@ -324,6 +329,17 @@ export async function feedback({ id, like, title, channel }) {
     if (v.print && learner.has(v.id)) { await learner.feedback(v, like); recheckTabs(); } // unless it was forgotten meanwhile
   }
   return { ok: true, learned: !!v.print, stats: learner.stats() };
+}
+// Check videos against the current filters (and apps' layers) without showing, counting or remembering them
+// (bridge: Test). For writing your own tests: [{ id?, title, channel?, image? }] → [{ id, hidden, why, verdicts }].
+export async function test(list) {
+  const vs = list.map((x, i) => ({ id: x.id || `test:${i}`, title: x.title ?? "", channel: x.channel ?? "", image: x.image ?? null, verdicts: {} }));
+  vs.forEach(keywords);
+  if (judge && filters.length) {
+    const results = await timed("test (a batch)", () => judge(vs, filters));
+    vs.forEach((v, k) => { v.verdicts = { ...results[k].verdicts, ...v.verdicts }; v.print = results[k].print; }); // keyword hits win
+  }
+  return vs.map((v) => ({ id: v.id, hidden: blocked(v), why: why(v), verdicts: v.verdicts }));
 }
 export function forget() { learner.forget(); recheckTabs(); }
 const recheckTabs = () => { for (const t of tabs) browser.tabs.sendMessage(t, { type: "yt-recheck" }).catch(() => {}); };

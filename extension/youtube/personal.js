@@ -38,6 +38,8 @@ export const unpackPrint = (e) => (e ? { t: unb64(e.t), i: unb64(e.i) } : null);
 // features: text and image fingerprints (image zeros + a flag when there's no thumbnail), centred on the examples' mean
 const raw = (e) => { const x = new Float32Array(2 * DIM + 1); for (let j = 0; j < DIM; j++) x[j] = (e.t?.[j] ?? 0) / 127; if (e.i) for (let j = 0; j < DIM; j++) x[DIM + j] = e.i[j] / 127; x[2 * DIM] = e.i ? 1 : 0; return x; };
 
+import { record } from "../timing.js";
+
 export function createLearner(storage = globalThis.browser?.storage?.local) {
   const st = { examples: [], shown: [] }; // examples: { id, title, channel, like, e: {t,i}, at }; shown: { id, channel, e, at }
   let model = null, loaded = null, saveTimer = null;
@@ -55,7 +57,8 @@ export function createLearner(storage = globalThis.browser?.storage?.local) {
     train();
   })());
 
-  function train() {
+  function train() { const t = performance.now(); try { trainNow(); } finally { record("learner train", performance.now() - t); } }
+  function trainNow() {
     const ex = st.examples.filter((x) => x.e), seen = new Set(ex.map((x) => x.id));
     const weak = st.shown.filter((x) => x.e && !seen.has(x.id)).slice(-300);
     const data = [...ex.map((x) => ({ x: raw(x.e), y: x.like ? 0 : 1, w: 1 })), ...weak.map((x) => ({ x: raw(x.e), y: 0, w: 0.2 }))];

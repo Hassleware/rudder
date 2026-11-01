@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0crudder.proto\x12\trudder.v1\"\x07\n\x05\x45mpty\"\x1a\n\x07\x46ilters\x12\x0f\n\x07\x66ilters\x18\x01 \x03(\t\"\xd2\x01\n\x05Stats\x12\x0f\n\x07\x63hecked\x18\x01 \x01(\x05\x12\x0e\n\x06hidden\x18\x02 \x01(\x05\x12>\n\x10hidden_by_filter\x18\x03 \x03(\x0b\x32$.rudder.v1.Stats.HiddenByFilterEntry\x12\r\n\x05likes\x18\x04 \x01(\x05\x12\x10\n\x08\x64islikes\x18\x05 \x01(\x05\x12\x10\n\x08learning\x18\x06 \x01(\x08\x1a\x35\n\x13HiddenByFilterEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x05:\x02\x38\x01\"A\n\x06Hidden\x12\n\n\x02id\x18\x01 \x01(\t\x12\r\n\x05title\x18\x02 \x01(\t\x12\x0f\n\x07\x63hannel\x18\x03 \x01(\t\x12\x0b\n\x03why\x18\x04 \x01(\t\"\x90\x01\n\x05State\x12\x11\n\tconnected\x18\x01 \x01(\x08\x12\x0f\n\x07\x65nabled\x18\x02 \x01(\x08\x12\x0f\n\x07\x66ilters\x18\x03 \x03(\t\x12\x0e\n\x06layers\x18\x04 \x03(\t\x12\x1f\n\x05stats\x18\x05 \x01(\x0b\x32\x10.rudder.v1.Stats\x12!\n\x06recent\x18\x06 \x03(\x0b\x32\x11.rudder.v1.Hidden\"V\n\x05Video\x12\n\n\x02id\x18\x01 \x01(\t\x12\r\n\x05title\x18\x02 \x01(\t\x12\x0f\n\x07\x63hannel\x18\x03 \x01(\t\x12\r\n\x05image\x18\x04 \x01(\x0c\x12\x12\n\nimage_type\x18\x05 \x01(\t\"<\n\x0cJudgeRequest\x12\n\n\x02id\x18\x01 \x01(\x03\x12 \n\x06videos\x18\x02 \x03(\x0b\x32\x10.rudder.v1.Video\"\'\n\x07Verdict\x12\x0f\n\x07\x62locked\x18\x01 \x01(\x08\x12\x0b\n\x03why\x18\x02 \x01(\t\";\n\x08Verdicts\x12\n\n\x02id\x18\x01 \x01(\x03\x12#\n\x07results\x18\x02 \x03(\x0b\x32\x12.rudder.v1.Verdict\"\x1a\n\nLayerHello\x12\x0c\n\x04name\x18\x01 \x01(\t\"f\n\x0cLayerMessage\x12&\n\x05hello\x18\x01 \x01(\x0b\x32\x15.rudder.v1.LayerHelloH\x00\x12\'\n\x08verdicts\x18\x02 \x01(\x0b\x32\x13.rudder.v1.VerdictsH\x00\x42\x05\n\x03msg2\xdf\x01\n\x06Rudder\x12.\n\x08GetState\x12\x10.rudder.v1.Empty\x1a\x10.rudder.v1.State\x12\x32\n\nWatchState\x12\x10.rudder.v1.Empty\x1a\x10.rudder.v1.State0\x01\x12\x32\n\nSetFilters\x12\x12.rudder.v1.Filters\x1a\x10.rudder.v1.State\x12=\n\x05Layer\x12\x17.rudder.v1.LayerMessage\x1a\x17.rudder.v1.JudgeRequest(\x01\x30\x01\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0crudder.proto\x12\trudder.v1\"\x07\n\x05\x45mpty\"\x1a\n\x07\x46ilters\x12\x0f\n\x07\x66ilters\x18\x01 \x03(\t\"\xd2\x01\n\x05Stats\x12\x0f\n\x07\x63hecked\x18\x01 \x01(\x05\x12\x0e\n\x06hidden\x18\x02 \x01(\x05\x12>\n\x10hidden_by_filter\x18\x03 \x03(\x0b\x32$.rudder.v1.Stats.HiddenByFilterEntry\x12\r\n\x05likes\x18\x04 \x01(\x05\x12\x10\n\x08\x64islikes\x18\x05 \x01(\x05\x12\x10\n\x08learning\x18\x06 \x01(\x08\x1a\x35\n\x13HiddenByFilterEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x05:\x02\x38\x01\"A\n\x06Hidden\x12\n\n\x02id\x18\x01 \x01(\t\x12\r\n\x05title\x18\x02 \x01(\t\x12\x0f\n\x07\x63hannel\x18\x03 \x01(\t\x12\x0b\n\x03why\x18\x04 \x01(\t\"\x90\x01\n\x05State\x12\x11\n\tconnected\x18\x01 \x01(\x08\x12\x0f\n\x07\x65nabled\x18\x02 \x01(\x08\x12\x0f\n\x07\x66ilters\x18\x03 \x03(\t\x12\x0e\n\x06layers\x18\x04 \x03(\t\x12\x1f\n\x05stats\x18\x05 \x01(\x0b\x32\x10.rudder.v1.Stats\x12!\n\x06recent\x18\x06 \x03(\x0b\x32\x11.rudder.v1.Hidden\"V\n\x05Video\x12\n\n\x02id\x18\x01 \x01(\t\x12\r\n\x05title\x18\x02 \x01(\t\x12\x0f\n\x07\x63hannel\x18\x03 \x01(\t\x12\r\n\x05image\x18\x04 \x01(\x0c\x12\x12\n\nimage_type\x18\x05 \x01(\t\"<\n\x0cJudgeRequest\x12\n\n\x02id\x18\x01 \x01(\x03\x12 \n\x06videos\x18\x02 \x03(\x0b\x32\x10.rudder.v1.Video\"\'\n\x07Verdict\x12\x0f\n\x07\x62locked\x18\x01 \x01(\x08\x12\x0b\n\x03why\x18\x02 \x01(\t\";\n\x08Verdicts\x12\n\n\x02id\x18\x01 \x01(\x03\x12#\n\x07results\x18\x02 \x03(\x0b\x32\x12.rudder.v1.Verdict\"\x1a\n\nLayerHello\x12\x0c\n\x04name\x18\x01 \x01(\t\"f\n\x0cLayerMessage\x12&\n\x05hello\x18\x01 \x01(\x0b\x32\x15.rudder.v1.LayerHelloH\x00\x12\'\n\x08verdicts\x18\x02 \x01(\x0b\x32\x13.rudder.v1.VerdictsH\x00\x42\x05\n\x03msg\"D\n\x05Panel\x12\n\n\x02id\x18\x01 \x01(\t\x12\r\n\x05title\x18\x02 \x01(\t\x12 \n\x06\x62locks\x18\x03 \x03(\x0b\x32\x10.rudder.v1.Block\"\x9e\x01\n\x05\x42lock\x12\x0e\n\x04text\x18\x01 \x01(\tH\x00\x12$\n\x05stats\x18\x02 \x01(\x0b\x32\x13.rudder.v1.StatGridH\x00\x12\"\n\x04\x62\x61rs\x18\x03 \x01(\x0b\x32\x12.rudder.v1.BarListH\x00\x12!\n\x05table\x18\x04 \x01(\x0b\x32\x10.rudder.v1.TableH\x00\x12\x10\n\x06\x62utton\x18\x05 \x01(\tH\x00\x42\x06\n\x04kind\"$\n\x04Stat\x12\r\n\x05label\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t\"*\n\x08StatGrid\x12\x1e\n\x05stats\x18\x01 \x03(\x0b\x32\x0f.rudder.v1.Stat\"#\n\x03\x42\x61r\x12\r\n\x05label\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x01\"\'\n\x07\x42\x61rList\x12\x1c\n\x04\x62\x61rs\x18\x01 \x03(\x0b\x32\x0e.rudder.v1.Bar\"\x14\n\x03Row\x12\r\n\x05\x63\x65lls\x18\x01 \x03(\t\"6\n\x05Table\x12\x0f\n\x07\x63olumns\x18\x01 \x03(\t\x12\x1c\n\x04rows\x18\x02 \x03(\x0b\x32\x0e.rudder.v1.Row\"+\n\nPanelEvent\x12\r\n\x05panel\x18\x01 \x01(\t\x12\x0e\n\x06\x62utton\x18\x02 \x01(\t\"\x1f\n\x0eTimingsRequest\x12\r\n\x05reset\x18\x01 \x01(\x08\"w\n\x06Timing\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\r\n\x05\x63ount\x18\x02 \x01(\x03\x12\x0f\n\x07mean_ms\x18\x03 \x01(\x01\x12\x0e\n\x06p50_ms\x18\x04 \x01(\x01\x12\x0e\n\x06p95_ms\x18\x05 \x01(\x01\x12\x0e\n\x06max_ms\x18\x06 \x01(\x01\x12\x0f\n\x07last_ms\x18\x07 \x01(\x01\"-\n\x07Timings\x12\"\n\x07timings\x18\x01 \x03(\x0b\x32\x11.rudder.v1.Timing\"/\n\x0bTestRequest\x12 \n\x06videos\x18\x01 \x03(\x0b\x32\x10.rudder.v1.Video\"1\n\rFilterVerdict\x12\x0f\n\x07\x62locked\x18\x01 \x01(\x08\x12\x0f\n\x07verdict\x18\x02 \x01(\t\"\xb4\x01\n\nTestResult\x12\n\n\x02id\x18\x01 \x01(\t\x12\x0e\n\x06hidden\x18\x02 \x01(\x08\x12\x0b\n\x03why\x18\x03 \x01(\t\x12\x33\n\x07\x66ilters\x18\x04 \x03(\x0b\x32\".rudder.v1.TestResult.FiltersEntry\x1aH\n\x0c\x46iltersEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\'\n\x05value\x18\x02 \x01(\x0b\x32\x18.rudder.v1.FilterVerdict:\x02\x38\x01\"A\n\x0bTestResults\x12&\n\x07results\x18\x01 \x03(\x0b\x32\x15.rudder.v1.TestResult\x12\n\n\x02ms\x18\x02 \x01(\x01\x32\xbe\x03\n\x06Rudder\x12.\n\x08GetState\x12\x10.rudder.v1.Empty\x1a\x10.rudder.v1.State\x12\x32\n\nWatchState\x12\x10.rudder.v1.Empty\x1a\x10.rudder.v1.State0\x01\x12\x32\n\nSetFilters\x12\x12.rudder.v1.Filters\x1a\x10.rudder.v1.State\x12=\n\x05Layer\x12\x17.rudder.v1.LayerMessage\x1a\x17.rudder.v1.JudgeRequest(\x01\x30\x01\x12.\n\x08SetPanel\x12\x10.rudder.v1.Panel\x1a\x10.rudder.v1.Empty\x12\x38\n\x0bPanelEvents\x12\x10.rudder.v1.Empty\x1a\x15.rudder.v1.PanelEvent0\x01\x12;\n\nGetTimings\x12\x19.rudder.v1.TimingsRequest\x1a\x12.rudder.v1.Timings\x12\x36\n\x04Test\x12\x16.rudder.v1.TestRequest\x1a\x16.rudder.v1.TestResultsb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -33,6 +33,8 @@ if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
   _globals['_STATS_HIDDENBYFILTERENTRY']._loaded_options = None
   _globals['_STATS_HIDDENBYFILTERENTRY']._serialized_options = b'8\001'
+  _globals['_TESTRESULT_FILTERSENTRY']._loaded_options = None
+  _globals['_TESTRESULT_FILTERSENTRY']._serialized_options = b'8\001'
   _globals['_EMPTY']._serialized_start=27
   _globals['_EMPTY']._serialized_end=34
   _globals['_FILTERS']._serialized_start=36
@@ -57,6 +59,40 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_LAYERHELLO']._serialized_end=769
   _globals['_LAYERMESSAGE']._serialized_start=771
   _globals['_LAYERMESSAGE']._serialized_end=873
-  _globals['_RUDDER']._serialized_start=876
-  _globals['_RUDDER']._serialized_end=1099
+  _globals['_PANEL']._serialized_start=875
+  _globals['_PANEL']._serialized_end=943
+  _globals['_BLOCK']._serialized_start=946
+  _globals['_BLOCK']._serialized_end=1104
+  _globals['_STAT']._serialized_start=1106
+  _globals['_STAT']._serialized_end=1142
+  _globals['_STATGRID']._serialized_start=1144
+  _globals['_STATGRID']._serialized_end=1186
+  _globals['_BAR']._serialized_start=1188
+  _globals['_BAR']._serialized_end=1223
+  _globals['_BARLIST']._serialized_start=1225
+  _globals['_BARLIST']._serialized_end=1264
+  _globals['_ROW']._serialized_start=1266
+  _globals['_ROW']._serialized_end=1286
+  _globals['_TABLE']._serialized_start=1288
+  _globals['_TABLE']._serialized_end=1342
+  _globals['_PANELEVENT']._serialized_start=1344
+  _globals['_PANELEVENT']._serialized_end=1387
+  _globals['_TIMINGSREQUEST']._serialized_start=1389
+  _globals['_TIMINGSREQUEST']._serialized_end=1420
+  _globals['_TIMING']._serialized_start=1422
+  _globals['_TIMING']._serialized_end=1541
+  _globals['_TIMINGS']._serialized_start=1543
+  _globals['_TIMINGS']._serialized_end=1588
+  _globals['_TESTREQUEST']._serialized_start=1590
+  _globals['_TESTREQUEST']._serialized_end=1637
+  _globals['_FILTERVERDICT']._serialized_start=1639
+  _globals['_FILTERVERDICT']._serialized_end=1688
+  _globals['_TESTRESULT']._serialized_start=1691
+  _globals['_TESTRESULT']._serialized_end=1871
+  _globals['_TESTRESULT_FILTERSENTRY']._serialized_start=1799
+  _globals['_TESTRESULT_FILTERSENTRY']._serialized_end=1871
+  _globals['_TESTRESULTS']._serialized_start=1873
+  _globals['_TESTRESULTS']._serialized_end=1938
+  _globals['_RUDDER']._serialized_start=1941
+  _globals['_RUDDER']._serialized_end=2387
 # @@protoc_insertion_point(module_scope)

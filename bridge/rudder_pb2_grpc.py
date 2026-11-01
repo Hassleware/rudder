@@ -54,6 +54,26 @@ class RudderStub:
                 request_serializer=rudder__pb2.LayerMessage.SerializeToString,
                 response_deserializer=rudder__pb2.JudgeRequest.FromString,
                 _registered_method=True)
+        self.SetPanel = channel.unary_unary(
+                '/rudder.v1.Rudder/SetPanel',
+                request_serializer=rudder__pb2.Panel.SerializeToString,
+                response_deserializer=rudder__pb2.Empty.FromString,
+                _registered_method=True)
+        self.PanelEvents = channel.unary_stream(
+                '/rudder.v1.Rudder/PanelEvents',
+                request_serializer=rudder__pb2.Empty.SerializeToString,
+                response_deserializer=rudder__pb2.PanelEvent.FromString,
+                _registered_method=True)
+        self.GetTimings = channel.unary_unary(
+                '/rudder.v1.Rudder/GetTimings',
+                request_serializer=rudder__pb2.TimingsRequest.SerializeToString,
+                response_deserializer=rudder__pb2.Timings.FromString,
+                _registered_method=True)
+        self.Test = channel.unary_unary(
+                '/rudder.v1.Rudder/Test',
+                request_serializer=rudder__pb2.TestRequest.SerializeToString,
+                response_deserializer=rudder__pb2.TestResults.FromString,
+                _registered_method=True)
 
 
 class RudderServicer:
@@ -89,6 +109,35 @@ class RudderServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def SetPanel(self, request, context):
+        """Show a panel in Rudder's popup, under the statistics. The same id replaces it; a panel with no blocks removes it.
+        Panels last until the bridge or Firefox restarts.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def PanelEvents(self, request, context):
+        """Clicks on panels' buttons.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetTimings(self, request, context):
+        """How long every stage takes, in ms (keywords, ocr, fingerprints, judge, layers, video: data to shown, ...).
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Test(self, request, context):
+        """Check videos against the current filters and layers without showing, counting or remembering them. For tests.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_RudderServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -111,6 +160,26 @@ def add_RudderServicer_to_server(servicer, server):
                     servicer.Layer,
                     request_deserializer=rudder__pb2.LayerMessage.FromString,
                     response_serializer=rudder__pb2.JudgeRequest.SerializeToString,
+            ),
+            'SetPanel': grpc.unary_unary_rpc_method_handler(
+                    servicer.SetPanel,
+                    request_deserializer=rudder__pb2.Panel.FromString,
+                    response_serializer=rudder__pb2.Empty.SerializeToString,
+            ),
+            'PanelEvents': grpc.unary_stream_rpc_method_handler(
+                    servicer.PanelEvents,
+                    request_deserializer=rudder__pb2.Empty.FromString,
+                    response_serializer=rudder__pb2.PanelEvent.SerializeToString,
+            ),
+            'GetTimings': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetTimings,
+                    request_deserializer=rudder__pb2.TimingsRequest.FromString,
+                    response_serializer=rudder__pb2.Timings.SerializeToString,
+            ),
+            'Test': grpc.unary_unary_rpc_method_handler(
+                    servicer.Test,
+                    request_deserializer=rudder__pb2.TestRequest.FromString,
+                    response_serializer=rudder__pb2.TestResults.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -221,6 +290,114 @@ class Rudder:
             '/rudder.v1.Rudder/Layer',
             rudder__pb2.LayerMessage.SerializeToString,
             rudder__pb2.JudgeRequest.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SetPanel(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/rudder.v1.Rudder/SetPanel',
+            rudder__pb2.Panel.SerializeToString,
+            rudder__pb2.Empty.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def PanelEvents(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/rudder.v1.Rudder/PanelEvents',
+            rudder__pb2.Empty.SerializeToString,
+            rudder__pb2.PanelEvent.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetTimings(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/rudder.v1.Rudder/GetTimings',
+            rudder__pb2.TimingsRequest.SerializeToString,
+            rudder__pb2.Timings.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Test(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/rudder.v1.Rudder/Test',
+            rudder__pb2.TestRequest.SerializeToString,
+            rudder__pb2.TestResults.FromString,
             options,
             channel_credentials,
             insecure,

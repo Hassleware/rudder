@@ -1,5 +1,5 @@
-// Rudder's local gRPC API, served by bridge.py on 127.0.0.1:47801. Generate a client in any language from this file.
-// (The Firefox extension can't serve gRPC itself: it connects to the bridge over a WebSocket on 127.0.0.1:47800.)
+// Rudder's local gRPC API, served by bridge.py on 127.0.0.1:7833. Generate a client in any language from this file.
+// (The Firefox extension can't serve gRPC itself: it connects to the bridge over a WebSocket on 127.0.0.1:7834.)
 syntax = "proto3";
 
 package rudder.v1;
@@ -15,6 +15,17 @@ service Rudder {
   // same id: one Verdict per video, in order. A video is hidden if any layer hides it. No answer within 25 s, a wrong
   // count, or closing the stream mid-request hides those videos (strict). Closing the stream removes the layer.
   rpc Layer(stream LayerMessage) returns (stream JudgeRequest);
+
+  // Show a panel in Rudder's popup, under the statistics. The same id replaces it; a panel with no blocks removes it.
+  // Panels last until the bridge or Firefox restarts.
+  rpc SetPanel(Panel) returns (Empty);
+  // Clicks on panels' buttons.
+  rpc PanelEvents(Empty) returns (stream PanelEvent);
+
+  // How long every stage takes, in ms (keywords, ocr, fingerprints, judge, layers, video: data to shown, ...).
+  rpc GetTimings(TimingsRequest) returns (Timings);
+  // Check videos against the current filters and layers without showing, counting or remembering them. For tests.
+  rpc Test(TestRequest) returns (TestResults);
 }
 
 message Empty {}
@@ -80,4 +91,95 @@ message LayerMessage {
     LayerHello hello = 1;
     Verdicts verdicts = 2;
   }
+}
+
+// ---- panels: Rudder's mini UI framework (extension/panel.js renders each block kind) ----
+
+message Panel {
+  string id = 1;
+  string title = 2;
+  repeated Block blocks = 3;
+}
+
+message Block {
+  oneof kind {
+    string text = 1;  // a line of text
+    StatGrid stats = 2;  // big numbers, three to a row
+    BarList bars = 3;  // labelled bars, scaled to the largest
+    Table table = 4;
+    string button = 5;  // a button; its clicks arrive on PanelEvents with this label
+  }
+}
+
+message Stat {
+  string label = 1;
+  string value = 2;
+}
+
+message StatGrid {
+  repeated Stat stats = 1;
+}
+
+message Bar {
+  string label = 1;
+  double value = 2;
+}
+
+message BarList {
+  repeated Bar bars = 1;
+}
+
+message Row {
+  repeated string cells = 1;
+}
+
+message Table {
+  repeated string columns = 1;
+  repeated Row rows = 2;
+}
+
+message PanelEvent {
+  string panel = 1;  // the panel's id
+  string button = 2;  // the button's label
+}
+
+// ---- timings and tests ----
+
+message TimingsRequest {
+  bool reset = 1;  // start counting again after this read
+}
+
+message Timing {
+  string name = 1;
+  int64 count = 2;  // runs since the last reset
+  double mean_ms = 3;
+  double p50_ms = 4;  // percentiles over the newest 500 runs
+  double p95_ms = 5;
+  double max_ms = 6;
+  double last_ms = 7;
+}
+
+message Timings {
+  repeated Timing timings = 1;
+}
+
+message TestRequest {
+  repeated Video videos = 1;  // id is optional; a real video id also applies your own likes and dislikes of it
+}
+
+message FilterVerdict {
+  bool blocked = 1;
+  string verdict = 2;  // e.g. "keyword: minecraft", "thumbnail text: casino", or a layer's why
+}
+
+message TestResult {
+  string id = 1;
+  bool hidden = 2;
+  string why = 3;
+  map<string, FilterVerdict> filters = 4;  // per filter (and "app: ..." for layers); filters with no verdict are absent
+}
+
+message TestResults {
+  repeated TestResult results = 1;
+  double ms = 2;  // the whole check, including the round trip to Firefox
 }

@@ -6,7 +6,8 @@
 // Gemma (WebLLM on the GPU) did a yes/no check and read thumbnails as image tokens until 2026-10-31; live hunts showed
 // keywords did ~90% of the hiding and Gemma's own calls were right about half the time, for a 45 s load and 2.8 GB of
 // graphics memory (NOTES.md).
-import { setJudge, setFilters, setEnabled, stats, setPrinter, recentHidden, feedback, forget, learner } from "./youtube/intercept.js";
+import { setJudge, setFilters, setEnabled, stats, setPrinter, recentHidden, feedback, forget, learner, test } from "./youtube/intercept.js";
+import { timed, timings } from "./timing.js";
 import { keywordMatch } from "./youtube/keywords.js";
 import { readThumbnail } from "./ocr.js";
 import { embed } from "./text.js";
@@ -33,9 +34,9 @@ const print = async (v) => ({ t: fingerprint(await embed([textOf(v)])), i: null 
 setJudge(async (videos, sentences) => {
   const own = sentences.filter((s) => !s.startsWith(APP)), app = sentences.find((s) => s.startsWith(APP));
   const [words, vecs, theirs] = await Promise.all([
-    Promise.all(videos.map((v) => (own.length && v.image ? readThumbnail(v.image) : ""))), // an OCR error hides the batch (strict); checked again next time
-    embed(videos.map(textOf)).catch((err) => { console.warn("rudder: fingerprints unavailable:", err); return null; }),
-    app ? api.judge(videos) : null,
+    Promise.all(videos.map((v) => (own.length && v.image ? timed("ocr (a thumbnail)", () => readThumbnail(v.image)) : ""))), // an OCR error hides the batch (strict); checked again next time
+    timed("fingerprints (a batch)", () => embed(videos.map(textOf))).catch((err) => { console.warn("rudder: fingerprints unavailable:", err); return null; }),
+    app ? timed("layers (a batch)", () => api.judge(videos)) : null,
   ]);
   return videos.map((v, i) => ({
     verdicts: Object.fromEntries(sentences.map((s) => {
@@ -51,7 +52,9 @@ setPrinter(print);
 learner.load().then(() => learner.reprint(print)).catch(() => {});
 
 // settings: the popup's filter list (any number of sentences) and the on/off switch, kept in extension storage
-const ytState = () => ({ type: "filters", enabled: yt.enabled, filters: yt.filters.map((f) => f.sentence), stats: stats(), recent: recentHidden() });
+// apps' panels for the popup (panel.js renders them; bridge: SetPanel)
+const panels = new Map();
+const ytState = () => ({ type: "filters", enabled: yt.enabled, filters: yt.filters.map((f) => f.sentence), stats: stats(), recent: recentHidden(), panels: [...panels.values()] });
 let layer = null; // the connected app's layer ("app: <name>"), if any
 function applyYoutube(reset) {
   setFilters([...yt.filters.map((f) => f.sentence), ...(layer ? [layer] : [])]);
@@ -77,6 +80,9 @@ const api = startApi({
   state: () => ({ ...ytState(), type: "state", layer }),
   setFilters: (filters) => setYoutubeSettings({ filters }),
   setLayer: (name) => { if (name !== layer) { layer = name; applyYoutube(true); } },
+  setPanel: (p) => { if (!p) panels.clear(); else if (p.blocks?.length) panels.set(p.id, p); else panels.delete(p.id); send(ytState()); },
+  timings,
+  test,
 });
 applyYoutube(false);
 // the defaults used to be worded for the old model ("anything about video games"); saved lists get the plain names, and
@@ -100,6 +106,7 @@ browser.runtime.onConnect.addListener((port) => {
     if (msg.type === "filters") port.postMessage(ytState());
     if (msg.type === "set-filters") setYoutubeSettings(msg);
     if (msg.type === "rudder-like") feedback({ id: msg.id, like: true }).then(() => port.postMessage(ytState())).catch(() => {});
+    if (msg.type === "panel-click") api.event(msg.panel, msg.button);
     if (msg.type === "rudder-forget") { forget(); port.postMessage(ytState()); }
   });
   port.postMessage(ytState());

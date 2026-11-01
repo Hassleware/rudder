@@ -39,6 +39,14 @@ $("add").addEventListener("submit", (e) => {
   $("new").value = "";
   save([...filters, v]);
 });
-port.onMessage.addListener((m) => { if (m.type === "filters") render(m); });
+// apps' panels (panel.js), redrawn only when they change
+let panelsShown = "";
+function renderPanels(list = []) {
+  const key = JSON.stringify(list);
+  if (key === panelsShown) return;
+  panelsShown = key;
+  $("panels").replaceChildren(...list.map((p) => renderPanel(p, (panel, button) => port.postMessage({ type: "panel-click", panel, button }))));
+}
+port.onMessage.addListener((m) => { if (m.type === "filters") { render(m); renderPanels(m.panels); } });
 const poll = setInterval(() => port.postMessage({ type: "filters" }), 1500); // live numbers while open
 addEventListener("unload", () => clearInterval(poll));

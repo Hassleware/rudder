@@ -13,7 +13,7 @@ def judge(video):
 
 
 async def main():
-    async with grpc.aio.insecure_channel("127.0.0.1:47801") as channel:
+    async with grpc.aio.insecure_channel("127.0.0.1:7833") as channel:
         rudder = rpc.RudderStub(channel)
         print("filters:", list((await rudder.GetState(pb.Empty())).filters), flush=True)
 
