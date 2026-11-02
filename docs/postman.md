@@ -30,6 +30,14 @@ Messages are JSON with the field names from `rudder.proto`. Leave a field out to
 }
 ```
 
+**SetEnabled**: switches Rudder's filtering off (`false`) or on (`true`), like the switch in the popup. The reply is the new state.
+
+```json
+{
+  "enabled": false
+}
+```
+
 ## The pipeline
 
 **GetPipeline**: the stages in order, and the kinds a stage can be.

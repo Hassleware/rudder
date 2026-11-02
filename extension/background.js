@@ -111,7 +111,7 @@ function usePipeline(list, save = true) {
   setPipeline(list?.length ? list : DEFAULT_PIPELINE);
   if (save) browser.storage.local.set({ pipeline: list?.length ? getPipeline() : null }).catch(() => {});
   redecide();
-  applyYoutube(true);
+  applyYoutube("soft");
   return pipelineState();
 }
 setPipeline(DEFAULT_PIPELINE);
@@ -123,10 +123,16 @@ browser.storage.local.get("pipeline").then((r) => {
 // settings: the popup's filter list (any number of sentences) and the on/off switch, kept in extension storage
 // apps' panels for the popup (panel.js renders them; bridge: SetPanel)
 const panels = new Map();
-const ytState = () => ({ type: "filters", enabled: yt.enabled, filters: yt.filters.map((f) => f.sentence), stages: getPipeline().map((s) => s.id), stats: stats(), recent: recentHidden(), panels: [...panels.values()] });
-function applyYoutube(reset) {
+let api = null;
+const ytState = () => ({ type: "filters", enabled: yt.enabled, filters: yt.filters.map((f) => f.sentence), stages: getPipeline().map((s) => s.id),
+  // app stages whose app isn't connected: they hide what they'd check (or pass it, with when_missing "pass")
+  waiting: getPipeline().filter((s) => s.kind === "app" && !api?.has(s.config.name)).map((s) => ({ id: s.id, app: s.config.name, hides: s.config.when_missing !== "pass" })),
+  stats: stats(), recent: recentHidden(), panels: [...panels.values()] });
+// how open YouTube pages take a change: "reset" (the filters changed: every tile is decided again, hidden until then) or
+// "soft" (a switch: on/off, the pipeline): what's on screen stays put, the change applies to the rest (feed.js)
+function applyYoutube(how) {
   setEnabled(yt.enabled);
-  if (reset) browser.tabs.query({ url: "https://www.youtube.com/*" }).then((ts) => ts.forEach((t) => browser.tabs.sendMessage(t.id, { type: "yt-reset" }).catch(() => {})));
+  if (how) browser.tabs.query({ url: "https://www.youtube.com/*" }).then((ts) => ts.forEach((t) => browser.tabs.sendMessage(t.id, { type: how === "soft" ? "yt-soft" : "yt-reset" }).catch(() => {})));
   send(ytState());
   api?.changed();
 }
@@ -141,11 +147,12 @@ function setYoutubeSettings(msg) {
   }
   if ("enabled" in msg) yt = { ...yt, enabled: !!msg.enabled };
   browser.storage.local.set({ "yt-settings": yt }).catch(() => {});
-  applyYoutube(true);
+  applyYoutube(msg.filters ? "reset" : "soft");
 }
-const api = startApi({
+api = startApi({
   state: () => ({ ...ytState(), type: "state" }),
   setFilters: (filters) => setYoutubeSettings({ filters }),
+  setEnabled: (on) => setYoutubeSettings({ enabled: on }),
   getPipeline: pipelineState,
   setPipeline: (stages) => usePipeline(stages),
   appsChanged: () => { recheckTabs(); send(ytState()); },
@@ -165,7 +172,7 @@ browser.storage.local.get("yt-settings").then((r) => {
     saved.filters = saved.filters.map((f) => ({ sentence: RENAMED[f.sentence] ?? f.sentence }));
     browser.storage.local.set({ "yt-settings": saved }).catch(() => {});
   }
-  if (saved?.v >= SETTINGS_V) { yt = saved; applyYoutube(true); }
+  if (saved?.v >= SETTINGS_V) { yt = saved; applyYoutube("reset"); }
   else browser.storage.local.set({ "yt-settings": yt }).catch(() => {});
 }).catch(() => {});
 
@@ -176,6 +183,7 @@ browser.runtime.onConnect.addListener((port) => {
   port.onMessage.addListener((msg) => {
     if (msg.type === "filters") port.postMessage(ytState());
     if (msg.type === "set-filters") setYoutubeSettings(msg);
+    if (msg.type === "set-enabled") setYoutubeSettings({ enabled: !!msg.enabled });
     if (msg.type === "rudder-like") feedback({ id: msg.id, like: true }).then(() => port.postMessage(ytState())).catch(() => {});
     if (msg.type === "panel-click") api.event(msg.panel, msg.button);
     if (msg.type === "rudder-forget") { forget(); port.postMessage(ytState()); }

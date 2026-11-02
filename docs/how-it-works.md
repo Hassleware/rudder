@@ -55,6 +55,7 @@ Other programs on your computer can change this pipeline or replace it completel
 - **The Shorts viewer.** Each short stays hidden and paused until it's checked. A rejected short is jumped over instantly, so it never slides past on screen.
 - **Autoplay and end screens.** The next video only autoplays if it has passed. The player's own end-screen recommendations are always hidden.
 - **Never filtered:** the video you're watching, the short you opened, and your playlists and history.
+- **Switches don't jump.** Turning Rudder off or on, or changing the pipeline (an app joining or leaving), never touches what's already shown: the change applies to the rest of the page. Turned off, the videos Rudder had hidden fill in below what you're reading, never above it. Editing the filters is different: every tile is decided again.
 
 All of this is in `extension/youtube/feed.js`.
 
@@ -69,7 +70,7 @@ Rudder turns each title and channel into a fingerprint with a small text model (
 
 ### 5. The popup
 
-The popup shows statistics only: how many videos were checked and hidden, your likes and dislikes, whether the learned model is on, the pipeline with how many videos each stage hid, your filters (add and remove), hidden channels, and recently hidden videos with the reason. Apps can add their own panels to it.
+The popup has one switch, filtering on or off, and otherwise shows statistics: how many videos were checked and hidden, your likes and dislikes, whether the learned model is on, the pipeline with how many videos each stage hid, your filters (add and remove), hidden channels, and recently hidden videos with the reason. Apps can add their own panels to it. A stage whose app isn't running is marked in the pipeline (striped when it's hiding what it would check).
 
 ## The API
 

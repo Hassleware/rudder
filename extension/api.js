@@ -2,10 +2,10 @@
 // on ws://127.0.0.1:7834 (retrying every 5 s), and the bridge serves the gRPC API (bridge/rudder.proto) to apps.
 // JSON messages, Rudder → bridge: state, video (each video's record and outcome), shown (videos put on screen), stage (videos for an app's stage),
 // panel-event, and answers (pipeline, timings, test-result). Bridge → Rudder: apps (the connected stage apps), get,
-// set-filters, get-pipeline, set-pipeline, stage-result, panel, timings, test. See API.md.
+// set-filters, set-enabled, get-pipeline, set-pipeline, stage-result, panel, timings, test. See API.md.
 const ADDRESS = "ws://127.0.0.1:7834", TIMEOUT = 30000;
 
-export function startApi({ state, setFilters, getPipeline, setPipeline, appsChanged, setPanel, timings, test }) {
+export function startApi({ state, setFilters, setEnabled, getPipeline, setPipeline, appsChanged, setPanel, timings, test }) {
   let ws = null, n = 0, apps = new Set();
   const waiting = new Map(); // stage request id → { resolve, reject, timer }
   const send = (m) => ws?.readyState === 1 && ws.send(JSON.stringify(m));
@@ -34,6 +34,7 @@ export function startApi({ state, setFilters, getPipeline, setPipeline, appsChan
       if (m.type === "get") send(state());
       else if (m.type === "apps" && Array.isArray(m.names)) setApps(m.names.map(String));
       else if (m.type === "set-filters" && Array.isArray(m.filters)) setFilters(m.filters);
+      else if (m.type === "set-enabled") setEnabled(!!m.enabled);
       else if (m.type === "get-pipeline") answer(m, () => ({ type: "pipeline", ...getPipeline() }));
       else if (m.type === "set-pipeline") answer(m, () => ({ type: "pipeline", ...setPipeline(Array.isArray(m.stages) ? m.stages : []) }));
       else if (m.type === "stage-result" && waiting.has(m.id)) {

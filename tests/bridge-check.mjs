@@ -1,5 +1,5 @@
 // extension/api.js ↔ bridge/bridge.py ↔ gRPC apps, end to end: an app stage puts itself into the pipeline and judges
-// videos; a wrong pipeline is refused; video records (with thumbnails) reach GetVideos, shown videos WatchShown; SetFilters, panels and their
+// videos; a wrong pipeline is refused; video records (with thumbnails) reach GetVideos, shown videos WatchShown; SetFilters, SetEnabled, panels and their
 // clicks, GetTimings and Test go through; an app leaving is noticed, and so is the bridge going.
 // Usage: node tests/bridge-check.mjs (needs: pip install -r bridge/requirements.txt)
 import { spawn } from "node:child_process";
@@ -17,13 +17,14 @@ const until = async (ok) => { for (let i = 0; i < 100 && !ok(); i++) await new P
 
 const bridge = py("bridge.py");
 await line(bridge, /apps on grpc/);
-let filters = ["news"], stages = [{ id: "your-clicks", kind: "your-clicks", config: {} }, { id: "keywords", kind: "keywords", config: {} }, { id: "learned", kind: "learned", config: {} }];
+let filters = ["news"], enabled = true, stages = [{ id: "your-clicks", kind: "your-clicks", config: {} }, { id: "keywords", kind: "keywords", config: {} }, { id: "learned", kind: "learned", config: {} }];
 const KINDS = ["your-clicks", "keywords", "learned", "thumbnail-text", "app"], panels = [];
 let appsChanges = 0;
 record("keywords (a video)", 2);
 const api = startApi({
-  state: () => ({ type: "state", enabled: true, filters, stages: stages.map((s) => s.id), stats: { checked: 3, hidden: 1, by: { news: 1 }, byStage: { keywords: 1 } }, recent: [] }),
+  state: () => ({ type: "state", enabled, filters, stages: stages.map((s) => s.id), stats: { checked: 3, hidden: 1, by: { news: 1 }, byStage: { keywords: 1 } }, recent: [] }),
   setFilters: (f) => { filters = f; api.changed(); },
+  setEnabled: (on) => { enabled = on; api.changed(); },
   getPipeline: () => ({ stages, kinds: KINDS }),
   setPipeline: (list) => {
     for (const s of list) if (!KINDS.includes(s.kind)) throw new Error(`unknown stage kind "${s.kind}"`);
@@ -79,6 +80,8 @@ assert.match(await line(shownApp, /shown:/), /shown: \['dQw4w9WgXcQ'\] 170000000
 // filters
 assert.match(await line(grpcPy("print('state:', list(r.SetFilters(pb.Filters(filters=['video games', 'AI'])).filters))"), /state:/), /\['video games', 'AI'\]/);
 assert.deepEqual(filters, ["video games", "AI"]);
+assert.match(await line(grpcPy("print('enabled:', r.SetEnabled(pb.Enabled(enabled=False)).enabled)"), /enabled:/), /enabled: False/);
+assert.equal(enabled, false);
 
 // a panel, and a click on its button coming back
 const clicks = grpcPy("r.SetPanel(pb.Panel(id='p', title='Mine', blocks=[pb.Block(text='hi'), pb.Block(button='Go')]))\nprint('set', flush=True)\nfor e in r.PanelEvents(pb.Empty()):\n    print('click:', e.panel, e.button, flush=True)\n    break");

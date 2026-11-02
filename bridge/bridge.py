@@ -153,6 +153,14 @@ class Bridge(rpc.RudderServicer):
         await asyncio.wait_for(changed.wait(), 5)
         return self.state
 
+    async def SetEnabled(self, request, context):
+        if not self.ext:
+            await context.abort(grpc.StatusCode.UNAVAILABLE, "Firefox isn't connected to the bridge")
+        changed = self.changed
+        await self.ext.send(json.dumps({"type": "set-enabled", "enabled": request.enabled}))
+        await asyncio.wait_for(changed.wait(), 5)
+        return self.state
+
     # ---- the pipeline ----
     async def pipeline(self, m, context):
         r = await self.ask(m, context)

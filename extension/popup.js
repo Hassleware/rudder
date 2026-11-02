@@ -8,6 +8,10 @@ const fill = (ul, items) => ul.replaceChildren(...(items.length ? items : [el("l
 
 function render(state) {
   const s = state.stats, l = s.learning ?? {};
+  $("on").setAttribute("aria-pressed", String(state.enabled));
+  $("off").setAttribute("aria-pressed", String(!state.enabled));
+  $("switch-label").textContent = state.enabled ? "FILTERING" : "OFF: YOUTUBE AS IT COMES";
+  document.body.classList.toggle("off", !state.enabled);
   $("checked").textContent = s.checked;
   $("hidden").textContent = s.hidden;
   $("rate").textContent = s.checked ? `${Math.round((100 * s.hidden) / s.checked)}%` : "0%";
@@ -17,15 +21,18 @@ function render(state) {
 
   filters = state.filters;
   const top = Math.max(1, ...filters.map((f) => s.by[f] ?? 0));
-  const key = JSON.stringify([filters, s.by, state.stages, s.byStage]);
+  const key = JSON.stringify([filters, s.by, state.stages, s.byStage, state.waiting]);
   if (key === shown) return; // unchanged: don't rebuild under the cursor
   shown = key;
   // the pipeline's stages in order (apps can change them), each with how many videos it hid
   const most = Math.max(1, ...(state.stages ?? []).map((id) => s.byStage?.[id] ?? 0));
   fill($("stages"), (state.stages ?? []).map((id) => {
-    const li = el("li"), bar = el("div", "bar");
+    const li = el("li"), bar = el("div", "bar"), w = (state.waiting ?? []).find((x) => x.id === id);
+    if (w) { li.classList.add("waiting"); li.classList.toggle("hides", w.hides); }
     bar.style.width = `${(100 * (s.byStage?.[id] ?? 0)) / most}%`;
-    li.append(bar, el("span", "name", id), el("span", "n", s.byStage?.[id] ?? 0));
+    const name = el("span", "name", id);
+    if (w) name.dataset.app = w.app;
+    li.append(bar, name, el("span", "n", s.byStage?.[id] ?? 0));
     return li;
   }));
   fill($("list"), filters.map((f) => {
@@ -40,6 +47,7 @@ function render(state) {
   fill($("recent"), (state.recent ?? []).slice(0, 25).map((v) => { const li = el("li"); li.append(el("span", "name", v.title), el("span", "why", v.why.replace(/ \(.*\)$/, ""))); return li; }));
 }
 
+for (const [b, on] of [["on", true], ["off", false]]) $(b).addEventListener("click", () => port.postMessage({ type: "set-enabled", enabled: on }));
 $("add").addEventListener("submit", (e) => {
   e.preventDefault();
   const v = $("new").value.trim();

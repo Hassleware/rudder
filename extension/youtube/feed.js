@@ -279,6 +279,9 @@
     }
   }
 
+  // recheck: true = re-decide every tile (you taught Rudder something); "soft" = a switch flipped (on/off, the pipeline):
+  // shown tiles stay, and so do removed ones above a shown tile (bringing them back would push it down); the rest are
+  // decided again, so hidden ones fill in below what you're reading
   async function check(recheck = false) {
     if (busy) { again = true; return; }
     busy = true;
@@ -286,12 +289,20 @@
       addMenuItems();
       const lists = [TILES, SEARCH, CHANNEL, OTHER, SIDE, SLOTS].map((s) => [...document.querySelectorAll(s)]), ask = [];
       const watching = new URLSearchParams(location.search).get("v");
+      if (recheck === "soft") for (const list of lists) {
+        let below = true; // no shown tile after this one yet
+        for (const tile of [...list].reverse()) {
+          const v = tile.getAttribute("rudder-verdict");
+          if (v === "show") below = false;
+          else if (v && (below || v !== "block")) tile.removeAttribute("rudder-verdict"); // undecided again: hidden until decided
+        }
+      }
       for (const tile of lists.flat()) {
         if (tile.querySelector("ytd-ad-slot-renderer")) { tile.setAttribute("rudder-verdict", "block"); continue; } // ad
         const id = idOf(tile);
         if (!id) continue; // not filled in yet: stays hidden
         if (tile.getAttribute("rudder-id") !== id) { tile.setAttribute("rudder-id", id); tile.removeAttribute("rudder-verdict"); } // YouTube reuses tiles
-        if (tile.hasAttribute("rudder-verdict") && !(recheck && id !== watching)) continue;
+        if (tile.hasAttribute("rudder-verdict") && !(recheck === true && id !== watching)) continue;
         if (id === watching || (id === opened && tile.matches(SLOTS))) { tile.setAttribute("rudder-verdict", "ready"); continue; } // the video being watched, or the short the viewer was opened on: never filtered
         const img = tile.querySelector("img"), r = tile.getBoundingClientRect();
         ask.push({
@@ -337,6 +348,7 @@
   browser.runtime.onMessage.addListener((msg) => {
     if (msg?.type === "yt-ready") soon();
     if (msg?.type === "yt-recheck") check(true); // you taught Rudder something: re-decide every tile on the page
+    if (msg?.type === "yt-soft") { since = new WeakMap(); check("soft"); }
     if (msg?.type === "yt-reset") { // the filters changed: every video is decided again (hidden until then)
       for (const el of document.querySelectorAll("[rudder-verdict]")) el.removeAttribute("rudder-verdict");
       host()?.removeAttribute("rudder-id");

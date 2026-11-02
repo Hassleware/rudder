@@ -95,6 +95,7 @@ For other languages, generate stubs from the same file with that language's gRPC
 | `GetState(Empty) → State` | Filters, pipeline stages, connected apps, statistics and the newest hidden videos |
 | `WatchState(Empty) → stream State` | The state now, then again on every change |
 | `SetFilters(Filters) → State` | Replaces the popup's filter list |
+| `SetEnabled(Enabled) → State` | Switches Rudder's filtering on or off, like the popup's switch. Videos on screen stay put; the change applies to the rest |
 | `GetPipeline(Empty) → Pipeline` | The stages in order, and the kinds a stage can be |
 | `SetPipeline(Pipeline) → Pipeline` | Replaces the pipeline. No stages restores the default |
 | `Stage(stream StageMessage) → stream StageRequest` | Runs your app's stages |
