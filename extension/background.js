@@ -7,7 +7,7 @@
 // Apps on this computer can add their own stages (kind "app"), reorder or reconfigure these, or replace them all
 // (bridge/: API.md). Gemma (WebLLM on the GPU) judged videos until 2026-10-31; keywords did ~90% of the hiding and
 // Gemma's own calls were right about half the time, for a 45 s load and 2.8 GB of graphics memory (docs/history.md).
-import { setEnabled, stats, setPrinter, recentHidden, feedback, forget, learner, test, redecide, recordOf, setSink, recheckTabs } from "./youtube/intercept.js";
+import { setEnabled, stats, setPrinter, recentHidden, feedback, forget, learner, test, redecide, recordOf, setSink, setShownSink, recheckTabs } from "./youtube/intercept.js";
 import { timed, timings, record } from "./timing.js";
 import { defineKind, setPipeline, getPipeline, kindNames, PASS } from "./pipeline.js";
 import { keywordMatch } from "./youtube/keywords.js";
@@ -76,13 +76,16 @@ defineKind("thumbnail-text", {
 });
 // an app's stage, run over the bridge: config { name, when_missing: "hide" (default) | "pass", ...anything the app reads }
 const appKey = (config) => JSON.stringify(config);
+// the answer from this sighting (intercept.js sets sightedAt when YouTube sends the video again); a remembered answer
+// from before a restart never matches
+const sighting = (v) => (v.sightedAt ??= Date.now());
 const DECISIONS = new Set(["hide", "show", "pass"]);
 defineKind("app", {
   needsImage: true,
   validate(config) { if (!config.name) throw new Error('an "app" stage needs config.name: the name its app says hello with'); },
   check(v, config) {
     const r = v.app?.[appKey(config)];
-    if (r) return r;
+    if (r && (config.remember !== false || r.at === sighting(v))) return r;
     if (!api.has(config.name)) return config.when_missing === "pass" ? PASS : { decision: "hide", why: `app ${config.name} isn't running` };
     return null;
   },
@@ -93,7 +96,7 @@ defineKind("app", {
       const decision = String(rs[i]?.decision ?? "pass").toLowerCase();
       if (!DECISIONS.has(decision)) throw new Error(`app ${config.name}: unknown decision "${rs[i]?.decision}"`);
       const fields = Object.fromEntries(Object.entries(rs[i]?.fields ?? {}).map(([k, x]) => [k, String(x).slice(0, 2000)]));
-      (v.app ??= {})[appKey(config)] = { decision, why: String(rs[i]?.why ?? "").slice(0, 200), fields };
+      (v.app ??= {})[appKey(config)] = { decision, why: String(rs[i]?.why ?? "").slice(0, 200), fields, at: sighting(v) };
     });
   },
 });
@@ -150,6 +153,7 @@ const api = startApi({
   timings,
   test,
 });
+setShownSink((ids, at) => api.shown(ids, at));
 setSink((v, d) => api.video(recordOf(v), { hidden: d.state === "hide", decided_by: d.stage ?? "", why: d.why ?? "" }));
 applyYoutube(false);
 // the defaults used to be worded for the old model ("anything about video games"); saved lists get the plain names, and

@@ -108,7 +108,10 @@ function learn(json, source, tabId) {
     else if (!old.title && v.title) Object.assign(old, { ...v, source, seenAt: old.seenAt ?? now() }, { image: old.image, imageType: old.imageType, imageAt: old.imageAt }); // its thumbnail came first
     else { // seen before: fill in what's new (a watch page brings the description, its length and an exact date)
       for (const k of ["description", "published", "duration", "channel"]) if (v[k] != null && (old[k] == null || (k === "published" && /ago/.test(old[k])))) old[k] = v[k];
-      continue;
+      // YouTube sending it again (a new page, a refresh) is a new sighting: app stages with "remember": false are asked
+      // again. Within 10 s it's the same page sending it twice.
+      if (now() - (old.sightedAt ?? 0) < 10000) continue;
+      old.sightedAt = now();
     }
     enqueue(videos.get(v.id)); // judge ahead
   }
@@ -149,7 +152,7 @@ browser.webRequest.onBeforeRequest.addListener((d) => {
 // extension storage, so a video seen before is decided at once. Every video is decided as soon as YouTube's data
 // arrives, before its tile exists; tiles' distance from the screen only sets the order.
 const MEM = "rudder-memory-v1";
-let enabled = true, saveTimer = null, sink = null;
+let enabled = true, saveTimer = null, sink = null, shownSink = null;
 const tabs = new Set(), memory = new Map(); // memory: id → { ocr, print, app }
 browser.storage.local.get(null).then((all) => {
   for (const [id, m] of Object.entries(all[MEM] ?? {})) memory.set(id, m);
@@ -176,6 +179,8 @@ onSettled((vs) => {
 });
 // background.js: each video's record and outcome, the first time it's decided (bridge: WatchVideos)
 export const setSink = (fn) => { sink = fn; };
+// background.js: videos put on screen (bridge: WatchShown)
+export const setShownSink = (fn) => { shownSink = fn; };
 
 // the pipeline's answer for a video (queueing the stage it waits on)
 function outcome(v, wait = true) {
@@ -249,6 +254,7 @@ browser.runtime.onMessage.addListener((msg, sender) => {
     if (sender.tab?.id >= 0) tabs.add(sender.tab.id);
     return Promise.resolve(Object.fromEntries(msg.tiles.map((t) => [t.id, verdict(t)])));
   }
+  if (msg?.type === "yt-shown") shownSink?.(msg.ids, msg.at);
   if (msg?.type === "yt-shown") for (const id of msg.ids) { const v = videos.get(id); if (v) { if (!v.shownAt && v.seenAt) record("video: data to shown", msg.at - v.seenAt); v.shownAt ??= msg.at; learner.shown(v); } }
   if (msg?.type === "rudder-feedback") return feedback(msg);
 });

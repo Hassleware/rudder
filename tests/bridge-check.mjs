@@ -1,5 +1,5 @@
 // extension/api.js ↔ bridge/bridge.py ↔ gRPC apps, end to end: an app stage puts itself into the pipeline and judges
-// videos; a wrong pipeline is refused; video records (with thumbnails) reach GetVideos; SetFilters, panels and their
+// videos; a wrong pipeline is refused; video records (with thumbnails) reach GetVideos, shown videos WatchShown; SetFilters, panels and their
 // clicks, GetTimings and Test go through; an app leaving is noticed, and so is the bridge going.
 // Usage: node tests/bridge-check.mjs (needs: pip install -r bridge/requirements.txt)
 import { spawn } from "node:child_process";
@@ -68,6 +68,13 @@ api.video(rec("zzzzzzzzzzz", "Minecraft"), { hidden: true, decided_by: "example"
 await new Promise((r) => setTimeout(r, 300));
 assert.match(await line(grpcPy("e = r.GetVideos(pb.VideosRequest(limit=2, thumbnails=True)).events\nprint('v:', [(x.video.id, x.outcome.hidden, x.outcome.decided_by, len(x.video.thumbnail), x.video.fields['thumbnail_text']) for x in e])"), /v:/),
   /\[\('zzzzzzzzzzz', True, 'example', 3, 'x'\), \('dQw4w9WgXcQ', False, '', 3, 'x'\)\]/);
+
+// videos put on screen reach WatchShown
+const shownApp = grpcPy("print('watching', flush=True)\nfor e in r.WatchShown(pb.Empty()):\n    print('shown:', list(e.ids), e.at_ms, flush=True)\n    break");
+await line(shownApp, /watching/);
+await new Promise((r) => setTimeout(r, 300)); // WatchShown subscribed
+api.shown(["dQw4w9WgXcQ"], 1700000000000);
+assert.match(await line(shownApp, /shown:/), /shown: \['dQw4w9WgXcQ'\] 1700000000000/);
 
 // filters
 assert.match(await line(grpcPy("print('state:', list(r.SetFilters(pb.Filters(filters=['video games', 'AI'])).filters))"), /state:/), /\['video games', 'AI'\]/);

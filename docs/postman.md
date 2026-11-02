@@ -134,6 +134,8 @@ To remove it, send the same `id` with no blocks:
 
 **WatchVideos**: send `{}` and leave it open, then browse YouTube. Every video arrives with its record and outcome as Rudder decides it.
 
+**WatchShown**: send `{}` and leave it open. Each time Rudder puts videos on screen you get their ids: `{ "ids": ["dQw4w9WgXcQ"], "at_ms": "1793000000000" }`.
+
 **PanelEvents**: send `{}` and leave it open, then click a button on your panel in the popup. Each click arrives as:
 
 ```json

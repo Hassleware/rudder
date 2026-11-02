@@ -44,7 +44,7 @@ Stage settings (`config`):
 | `keywords`, `thumbnail-text` | `filters`: their own list instead of the popup's |
 | `thumbnail-text` | `min_letters`: shortest word that counts (default 4; OCR makes short words out of noise) |
 | `learned` | `can_show`: also show videos like ones you liked (a show skips every stage after it) |
-| `app` | `name`: the app that runs it. `when_missing`: `hide` (default) or `pass` while that app isn't running. Anything else is passed to your app |
+| `app` | `name`: the app that runs it. `when_missing`: `hide` (default) or `pass` while that app isn't running. `remember`: `false` to be asked again each time YouTube sends the video. Anything else is passed to your app |
 
 `SetPipeline` replaces the whole list, so it can add, remove, reorder or reconfigure stages. A pipeline of just your own app stage replaces Rudder's filtering entirely. Sending no stages restores the default. A wrong pipeline (an unknown kind, a repeated id, an app stage without a name) is refused and nothing changes. The pipeline is kept across restarts, and the popup shows it with how many videos each stage hid.
 
@@ -56,7 +56,7 @@ Stage settings (`config`):
 2. Put a stage of kind `app` with `config.name` set to that name into the pipeline (`GetPipeline`, insert, `SetPipeline`).
 3. Each `StageRequest` brings a batch of videos and the stage's config. Answer with a `reply` of the same `id`: one `StageResult` per video, in order, each with a `decision` (`PASS`, `HIDE` or `SHOW`), a `why` and any `fields` you want later stages to see.
 
-You have 25 seconds per batch. A late, missing or wrong-sized answer hides those videos. Rudder remembers each video's answer per stage config, so each video is sent once; change the config to have everything judged again. One app can run several stages with different configs: the config comes with each request.
+You have 25 seconds per batch. A late, missing or wrong-sized answer hides those videos. Rudder remembers each video's answer per stage config, so each video is sent once; change the config to have everything judged again. With `"remember": false` Rudder instead asks again each time YouTube sends the video (a new page, a refresh, after a restart), for answers that change, such as "seen before". One app can run several stages with different configs: the config comes with each request.
 
 ## The video record
 
@@ -78,7 +78,7 @@ Every video in the API (stage requests, `WatchVideos`, `GetVideos`, `Test`) has 
 
 Rudder makes no requests to YouTube itself, so fields YouTube didn't send are empty rather than fetched. The thumbnail is the one the page loaded; a video whose thumbnail came from the browser's cache has none. Reload the page for complete records.
 
-`WatchVideos` streams each video with its outcome (hidden or not, which stage decided, why) the first time it's decided. `GetVideos` returns the newest 500 the bridge has seen, newest first; set `thumbnails` to include the images.
+`WatchVideos` streams each video with its outcome (hidden or not, which stage decided, why) the first time it's decided. `WatchShown` streams the ids Rudder actually puts on screen, each time it does; a video decided as shown that the user never got to isn't in it. `GetVideos` returns the newest 500 the bridge has seen, newest first; set `thumbnails` to include the images.
 
 ## Build your own client
 
@@ -99,6 +99,7 @@ For other languages, generate stubs from the same file with that language's gRPC
 | `SetPipeline(Pipeline) → Pipeline` | Replaces the pipeline. No stages restores the default |
 | `Stage(stream StageMessage) → stream StageRequest` | Runs your app's stages |
 | `WatchVideos(Empty) → stream VideoEvent` | Every video Rudder decides, with its record and outcome |
+| `WatchShown(Empty) → stream Shown` | The videos Rudder puts on screen, as it does |
 | `GetVideos(VideosRequest) → VideoEvents` | The newest videos the bridge has seen |
 | `Test(TestRequest) → TestResults` | Runs videos through the pipeline without showing, counting or remembering them |
 | `SetPanel(Panel) → Empty` | Shows your panel in the popup. The same `id` replaces it; no blocks removes it |
