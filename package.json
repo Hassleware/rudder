@@ -6,7 +6,7 @@
   "scripts": {
     "postinstall": "node scripts/vendor.mjs",
     "start": "web-ext run",
-    "test": "node tests/keywords-check.mjs && node tests/rename-check.mjs && node tests/personal-check.mjs && node tests/intercept-check.mjs",
+    "test": "node tests/keywords-check.mjs && node tests/rename-check.mjs && node tests/personal-check.mjs && node tests/intercept-check.mjs && node tests/captions-check.mjs",
     "test:bridge": "node tests/bridge-check.mjs",
     "lint": "web-ext lint --ignore-files \"vendor/**\"",
     "build": "web-ext build --overwrite-dest",

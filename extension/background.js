@@ -15,6 +15,8 @@ import { readThumbnail } from "./ocr.js";
 import { embed } from "./text.js";
 import { fingerprint } from "./youtube/personal.js";
 import { startApi } from "./api.js";
+import { createCaptions } from "./youtube/captions.js";
+import { tap } from "./youtube/intercept.js";
 
 // The default filters: the user's own 43 merged into 11 (2026-10-31), plus common upsetting topics and relapse
 // triggers; each filter's words and youtube/keywords.js do the rest (checked with tests/keywords-check.mjs).
@@ -161,6 +163,13 @@ api = startApi({
   test,
 });
 setShownSink((ids, at) => api.shown(ids, at));
+
+// captions of the videos you watch, line by line as you watch them (youtube/captions.js; bridge: WatchCaptions)
+const captions = createCaptions((lines) => api.captions(lines));
+browser.webRequest.onBeforeRequest.addListener((d) => tap(d, (bytes) => captions.track(d.url, new TextDecoder().decode(bytes))),
+  { urls: ["https://www.youtube.com/api/timedtext*"] }, ["blocking"]);
+browser.runtime.onMessage.addListener((msg, sender) => { if (msg?.type === "yt-playhead") captions.playhead(sender.tab?.id ?? -1, String(msg.id), +msg.t); });
+browser.tabs.onRemoved.addListener((tab) => captions.closed(tab));
 setSink((v, d) => api.video(recordOf(v), { hidden: d.state === "hide", decided_by: d.stage ?? "", why: d.why ?? "" }));
 applyYoutube(false);
 // the defaults used to be worded for the old model ("anything about video games"); saved lists get the plain names, and

@@ -51,10 +51,11 @@ Other programs on your computer can change this pipeline or replace it completel
 
 - **Hidden until decided.** Every tile starts invisible but keeps its size, so the layout and YouTube's lazy loading work as normal (`extension/youtube/hide.css`). A rejected tile is taken out of the grid.
 - **In order, no holes.** A tile appears only once every tile before it is decided, so the grid fills from the top and nothing on screen ever moves.
-- **Topped up.** When Rudder removes videos, the home feed and sidebar would run short. Rudder briefly places YouTube's own "load more" spot on screen, invisibly, so YouTube fetches its next page the same way a scroll would. This is the one place Rudder causes a request, and it's YouTube's own. Shorts rows are refilled from shorts the page already has.
+- **Topped up.** When Rudder removes videos, the home feed and sidebar would run short. Rudder briefly places YouTube's own "load more" spot on screen, invisibly, so YouTube fetches its next page the same way a scroll would. This is one of two places Rudder causes a request, both YouTube's own (the other is captions, below). Shorts rows are refilled from shorts the page already has.
 - **The Shorts viewer.** Each short stays hidden and paused until it's checked. A rejected short is jumped over instantly, so it never slides past on screen.
 - **Autoplay and end screens.** The next video only autoplays if it has passed. The player's own end-screen recommendations are always hidden.
 - **Never filtered:** the video you're watching, the short you opened, and your playlists and history.
+- **Captions.** On every video you watch, Rudder asks YouTube's player for English captions (a person's if there are any, else automatic ones, else another language translated to English), and the player downloads them. Rudder reads that download and sends apps each line as you watch it; lines you skip past aren't sent (`extension/youtube/captions.js`). They're drawn on the video only if you choose: the CC button and the C key show or hide them, and Rudder remembers your choice. Rudder keeps reading them either way.
 - **Switches don't jump.** Turning Rudder off or on, or changing the pipeline (an app joining or leaving), never touches what's already shown: the change applies to the rest of the page. Turned off, the videos Rudder had hidden fill in below what you're reading, never above it. Editing the filters is different: every tile is decided again.
 
 All of this is in `extension/youtube/feed.js`.

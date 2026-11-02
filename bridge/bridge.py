@@ -22,7 +22,7 @@ class Bridge(rpc.RudderServicer):
         self.ext = None  # Firefox's WebSocket
         self.state = pb.State()
         self.changed = asyncio.Event()
-        self.state_watchers, self.video_watchers, self.shown_watchers, self.clicks = set(), set(), set(), set()  # one queue per streaming call
+        self.state_watchers, self.video_watchers, self.shown_watchers, self.caption_watchers, self.clicks = set(), set(), set(), set(), set()  # one queue per streaming call
         self.videos = collections.deque(maxlen=500)  # newest first
         self.apps = {}  # stage app name → queue of StageRequests
         self.pending = {}  # (app name, request id) → future of its results
@@ -51,6 +51,12 @@ class Bridge(rpc.RudderServicer):
                     ev = pb.Shown(ids=[str(i) for i in m["ids"]], at_ms=int(m.get("at") or time.time() * 1000))
                     for q in self.shown_watchers:
                         q.put_nowait(ev)
+                elif t == "captions":
+                    for line in m["lines"]:
+                        ev = pb.Caption(video_id=str(line["video_id"]), start_ms=int(line["start_ms"]), end_ms=int(line["end_ms"]),
+                                        text=str(line["text"]), language=str(line["language"]), auto=bool(line["auto"]))
+                        for q in self.caption_watchers:
+                            q.put_nowait(ev)
                 elif t == "stage":
                     asyncio.create_task(self.run_stage(m))
                 elif t == "panel-event":
@@ -227,6 +233,15 @@ class Bridge(rpc.RudderServicer):
                 yield await q.get()
         finally:
             self.shown_watchers.discard(q)
+
+    async def WatchCaptions(self, request, context):
+        q = asyncio.Queue()
+        self.caption_watchers.add(q)
+        try:
+            while True:
+                yield await q.get()
+        finally:
+            self.caption_watchers.discard(q)
 
     async def GetVideos(self, request, context):
         out = pb.VideoEvents()

@@ -1,6 +1,7 @@
 // Rudder's link to apps on this computer. Firefox can't serve gRPC, so Rudder connects as a client to bridge/bridge.py
 // on ws://127.0.0.1:7834 (retrying every 5 s), and the bridge serves the gRPC API (bridge/rudder.proto) to apps.
-// JSON messages, Rudder → bridge: state, video (each video's record and outcome), shown (videos put on screen), stage (videos for an app's stage),
+// JSON messages, Rudder → bridge: state, video (each video's record and outcome), shown (videos put on screen), captions
+// (lines of the video you watch), stage (videos for an app's stage),
 // panel-event, and answers (pipeline, timings, test-result). Bridge → Rudder: apps (the connected stage apps), get,
 // set-filters, set-enabled, get-pipeline, set-pipeline, stage-result, panel, timings, test. See API.md.
 const ADDRESS = "ws://127.0.0.1:7834", TIMEOUT = 30000;
@@ -61,6 +62,8 @@ export function startApi({ state, setFilters, setEnabled, getPipeline, setPipeli
     video: (record, outcome) => send({ type: "video", video: wire(record), outcome }),
     // videos put on screen (bridge: WatchShown)
     shown: (ids, at) => send({ type: "shown", ids, at }),
+    // caption lines you just watched (bridge: WatchCaptions)
+    captions: (lines) => send({ type: "captions", lines }),
     // a button on an app's panel was clicked
     event: (panel, button) => send({ type: "panel-event", panel, button }),
     // an app stage: its app's answer for each record, in order; no answer in time = an error (the pipeline hides them)

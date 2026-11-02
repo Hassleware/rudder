@@ -22,7 +22,7 @@ let order = 0;
 const now = () => Date.now();
 
 // copy each chunk for us, pass the original straight on; parse when the response is complete
-function tap(details, done) {
+export function tap(details, done) {
   const f = browser.webRequest.filterResponseData(details.requestId), parts = [];
   f.ondata = (e) => { parts.push(new Uint8Array(e.data).slice()); f.write(e.data); };
   f.onstop = () => {

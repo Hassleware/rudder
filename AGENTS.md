@@ -10,6 +10,7 @@ Rudder is a Firefox extension (Manifest V2) that filters YouTube recommendations
 | `extension/pipeline.js` | The filtering engine: ordered stages, each saying hide / show / pass; first hide or show decides |
 | `extension/youtube/intercept.js` | Reads YouTube's data and thumbnails into video records; `verdict()` answers the page |
 | `extension/youtube/feed.js`, `hide.css`, `page.js` | Content script, CSS and page script: hide until decided, reveal in order, fill the feed, Shorts, menus |
+| `extension/youtube/captions.js` | Captions of watched videos: reads the player's English caption download, sends lines as you watch them |
 | `extension/youtube/keywords.js` | Filter phrase → words, related words, safe phrases |
 | `extension/youtube/personal.js` | Like/dislike learner (MiniLM fingerprints + logistic regression) |
 | `extension/ocr.js`, `text.js` | Tesseract OCR; MiniLM embeddings (transformers.js, WASM, CPU) |
@@ -38,7 +39,7 @@ Run `npm test` after any change to the extension, and `npm run test:bridge` afte
 ## Rules
 
 - **Strict: fail closed.** Unknown, failed, timed-out or undecided means hidden. Never add a path that shows a video before it's decided, even for a frame. Over-blocking is acceptable; leaks are not.
-- **No requests to YouTube from Rudder.** Read only what the page already receives (page data, `webRequest.filterResponseData`, thumbnail downloads). The single exception is `fill()` in `feed.js`, which briefly puts YouTube's own "load more" spot on screen so YouTube fetches its next page. No scrolling the user's page, no screenshots.
+- **No requests to YouTube from Rudder.** Read only what the page already receives (page data, `webRequest.filterResponseData`, thumbnail downloads). There are two exceptions, both YouTube's own requests: `fill()` in `feed.js` briefly puts YouTube's "load more" spot on screen so YouTube fetches its next page; and on a watch page `page.js` asks the player for English captions, so the player downloads them (`youtube/captions.js` reads them). No scrolling the user's page, no screenshots.
 - **Processor only.** No GPU or WebGPU work; the models run on WASM (CPU).
 - **No Firefox settings changes.** Everything must work in a stock Firefox.
 - **The API is the boundary.** This repo is the extension and its API only: no example, demo or mock apps. Programs that use the API live in their own projects.

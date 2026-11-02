@@ -80,6 +80,8 @@ Rudder makes no requests to YouTube itself, so fields YouTube didn't send are em
 
 `WatchVideos` streams each video with its outcome (hidden or not, which stage decided, why) the first time it's decided. `WatchShown` streams the ids Rudder actually puts on screen, each time it does; a video decided as shown that the user never got to isn't in it. `GetVideos` returns the newest 500 the bridge has seen, newest first; set `thumbnails` to include the images.
 
+`WatchCaptions` streams the captions of the videos you watch, one line at a time as you watch it: `video_id`, `start_ms`, `end_ms`, `text`, `language` and `auto` (YouTube's automatic captions rather than a person's). Rudder asks the player for English captions on every watched video, whether or not they're shown on screen. Lines you skip past aren't sent.
+
 ## Build your own client
 
 The service is defined in `bridge/rudder.proto`. Python stubs are already generated (`rudder_pb2.py`, `rudder_pb2_grpc.py`, `rudder_pb2.pyi`). After changing the proto, regenerate them with:
@@ -101,6 +103,7 @@ For other languages, generate stubs from the same file with that language's gRPC
 | `Stage(stream StageMessage) → stream StageRequest` | Runs your app's stages |
 | `WatchVideos(Empty) → stream VideoEvent` | Every video Rudder decides, with its record and outcome |
 | `WatchShown(Empty) → stream Shown` | The videos Rudder puts on screen, as it does |
+| `WatchCaptions(Empty) → stream Caption` | The captions of the videos you watch, line by line as you watch them |
 | `GetVideos(VideosRequest) → VideoEvents` | The newest videos the bridge has seen |
 | `Test(TestRequest) → TestResults` | Runs videos through the pipeline without showing, counting or remembering them |
 | `SetPanel(Panel) → Empty` | Shows your panel in the popup. The same `id` replaces it; no blocks removes it |

@@ -144,6 +144,12 @@ To remove it, send the same `id` with no blocks:
 
 **WatchShown**: send `{}` and leave it open. Each time Rudder puts videos on screen you get their ids: `{ "ids": ["dQw4w9WgXcQ"], "at_ms": "1793000000000" }`.
 
+**WatchCaptions**: send `{}` and leave it open, then play a video in Firefox. Each line arrives as you watch it:
+
+```json
+{ "videoId": "dQw4w9WgXcQ", "startMs": "18500", "endMs": "21000", "text": "never gonna give you up", "language": "en", "auto": true }
+```
+
 **PanelEvents**: send `{}` and leave it open, then click a button on your panel in the popup. Each click arrives as:
 
 ```json

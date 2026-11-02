@@ -357,6 +357,29 @@
     }
   });
   addEventListener("scroll", soon, { passive: true }); // tiles' distance from the screen decides what's filtered next
+
+  // Captions (youtube/captions.js): Rudder reads English captions on every watch page; drawing them is your choice.
+  // The CC button and the C key show or hide them on screen only (Rudder keeps reading), and the choice is kept.
+  const html = document.documentElement;
+  browser.storage.local.get("yt-captions-shown").then((r) => html.toggleAttribute("rudder-captions", !!r["yt-captions-shown"])).catch(() => {});
+  const toggleCaptions = (e) => {
+    e.preventDefault();
+    e.stopImmediatePropagation(); // before YouTube's own handler, which would switch the captions off
+    const on = !html.hasAttribute("rudder-captions");
+    html.toggleAttribute("rudder-captions", on);
+    browser.storage.local.set({ "yt-captions-shown": on }).catch(() => {});
+  };
+  addEventListener("click", (e) => { if (e.target.closest?.(".ytp-subtitles-button")) toggleCaptions(e); }, true);
+  addEventListener("keydown", (e) => {
+    if (e.key.toLowerCase() === "c" && !e.ctrlKey && !e.metaKey && !e.altKey && location.pathname === "/watch" &&
+        !e.target.closest?.("input, textarea, [contenteditable], [contenteditable=true]")) toggleCaptions(e);
+  }, true);
+  // where the video you watch is, every second it plays (not during ads): which caption lines you've watched
+  setInterval(() => {
+    const id = location.pathname === "/watch" && new URLSearchParams(location.search).get("v");
+    const video = document.querySelector("#movie_player:not(.ad-showing) video");
+    if (id && video && !video.paused) browser.runtime.sendMessage({ type: "yt-playhead", id, t: video.currentTime }).catch(() => {});
+  }, 1000);
   setInterval(check, 1000); // catches thumbnails the page drew from its own memory (no download for us to see)
   soon();
 })();
