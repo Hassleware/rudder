@@ -80,6 +80,8 @@ Rudder makes no requests to YouTube itself, so fields YouTube didn't send are em
 
 `WatchVideos` streams each video with its outcome (hidden or not, which stage decided, why) the first time it's decided. `WatchShown` streams the ids Rudder actually puts on screen, each time it does; a video decided as shown that the user never got to isn't in it. `GetVideos` returns the newest 500 the bridge has seen, newest first; set `thumbnails` to include the images.
 
+`WatchFeedback` streams every like and dislike you give (Rudder's "more / less like this" and YouTube's 👍 / 👎) with the video's record, including videos you rated without watching.
+
 `WatchCaptions` streams the captions of the videos you watch, one line at a time as you watch it: `video_id`, `start_ms`, `end_ms`, `text`, `language` and `auto` (YouTube's automatic captions rather than a person's). Rudder asks the player for English captions on every watched video, whether or not they're shown on screen. Lines you skip past aren't sent.
 
 ## Build your own client
@@ -103,6 +105,7 @@ For other languages, generate stubs from the same file with that language's gRPC
 | `Stage(stream StageMessage) → stream StageRequest` | Runs your app's stages |
 | `WatchVideos(Empty) → stream VideoEvent` | Every video Rudder decides, with its record and outcome |
 | `WatchShown(Empty) → stream Shown` | The videos Rudder puts on screen, as it does |
+| `WatchFeedback(Empty) → stream Feedback` | Your likes and dislikes, with the video's record |
 | `WatchCaptions(Empty) → stream Caption` | The captions of the videos you watch, line by line as you watch them |
 | `GetVideos(VideosRequest) → VideoEvents` | The newest videos the bridge has seen |
 | `Test(TestRequest) → TestResults` | Runs videos through the pipeline without showing, counting or remembering them |

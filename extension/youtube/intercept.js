@@ -152,7 +152,7 @@ browser.webRequest.onBeforeRequest.addListener((d) => {
 // extension storage, so a video seen before is decided at once. Every video is decided as soon as YouTube's data
 // arrives, before its tile exists; tiles' distance from the screen only sets the order.
 const MEM = "rudder-memory-v1";
-let enabled = true, saveTimer = null, sink = null, shownSink = null;
+let enabled = true, saveTimer = null, sink = null, shownSink = null, feedbackSink = null;
 const tabs = new Set(), memory = new Map(); // memory: id → { ocr, print, app }
 browser.storage.local.get(null).then((all) => {
   for (const [id, m] of Object.entries(all[MEM] ?? {})) memory.set(id, m);
@@ -181,6 +181,8 @@ onSettled((vs) => {
 export const setSink = (fn) => { sink = fn; };
 // background.js: videos put on screen (bridge: WatchShown)
 export const setShownSink = (fn) => { shownSink = fn; };
+// background.js: your 👍 / 👎, with the video's record (bridge: WatchFeedback)
+export const setFeedbackSink = (fn) => { feedbackSink = fn; };
 
 // the pipeline's answer for a video (queueing the stage it waits on)
 function outcome(v, wait = true) {
@@ -267,6 +269,7 @@ async function learn1({ id, like, title, channel }) {
   if (!v) videos.set(id, (v = { id, title, channel, order: ++order, source: "feedback", seenAt: now() }));
   v.title ??= title; v.channel ??= channel;
   await learner.feedback(v, like); // counts at once
+  feedbackSink?.(v, like);
   recheckTabs();
   if (!v.print && printer) { // a video never fingerprinted (e.g. hidden by a keyword first): fingerprint it, then learn from it
     try { v.print = await printer(v); } catch (err) { console.warn("rudder: fingerprint failed:", err); }

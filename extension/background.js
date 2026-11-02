@@ -7,7 +7,7 @@
 // Apps on this computer can add their own stages (kind "app"), reorder or reconfigure these, or replace them all
 // (bridge/: API.md). Gemma (WebLLM on the GPU) judged videos until 2026-10-31; keywords did ~90% of the hiding and
 // Gemma's own calls were right about half the time, for a 45 s load and 2.8 GB of graphics memory (docs/history.md).
-import { setEnabled, stats, setPrinter, recentHidden, feedback, forget, learner, test, redecide, recordOf, setSink, setShownSink, recheckTabs } from "./youtube/intercept.js";
+import { setEnabled, stats, setPrinter, recentHidden, feedback, forget, learner, test, redecide, recordOf, setSink, setShownSink, setFeedbackSink, recheckTabs } from "./youtube/intercept.js";
 import { timed, timings, record } from "./timing.js";
 import { defineKind, setPipeline, getPipeline, kindNames, PASS } from "./pipeline.js";
 import { keywordMatch } from "./youtube/keywords.js";
@@ -163,6 +163,7 @@ api = startApi({
   test,
 });
 setShownSink((ids, at) => api.shown(ids, at));
+setFeedbackSink((v, like) => api.feedback(recordOf(v), like));
 
 // captions of the videos you watch, line by line as you watch them (youtube/captions.js; bridge: WatchCaptions)
 const captions = createCaptions((lines) => api.captions(lines));
