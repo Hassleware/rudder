@@ -17,7 +17,7 @@ function render(state) {
   $("rate").textContent = s.checked ? `${Math.round((100 * s.hidden) / s.checked)}%` : "0%";
   $("likes").textContent = l.likes ?? 0;
   $("dislikes").textContent = l.dislikes ?? 0;
-  $("model").textContent = l.learning ? "on" : `${Math.min(l.dislikes ?? 0, 3)}/3`; // starts after 3 dislikes
+  $("model").textContent = (l.channels ?? []).length;
 
   filters = state.filters;
   const top = Math.max(1, ...filters.map((f) => s.by[f] ?? 0));

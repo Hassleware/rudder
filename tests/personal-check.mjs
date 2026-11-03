@@ -1,37 +1,32 @@
-// CPU-only check of Rudder's learner (extension/youtube/personal.js) with made-up fingerprints: two "topics" (clusters)
-// in fingerprint space; 👎 a few of one, 👍 / see a few of the other, and the learner should hide the rest of the first
-// and leave the second alone; channels with 2 👎 get hidden; an explicit 👍 always shows.
+// CPU-only check of your ratings (extension/youtube/personal.js): a video you rated is decided by your rating; a
+// channel you 👎 twice and never 👍 is hidden, one you 👍 isn't; everything else is left to the other stages; the
+// old learner's clicks are kept; ratings survive a restart.
 // Run: node tests/personal-check.mjs
-const mem = {};
+const mem = { "rudder-learning-v2": { examples: [{ id: "old", title: "Old", channel: "c", like: false, at: 1, e: { t: "x" } }], shown: [] } };
 const storage = { get: async (k) => Object.fromEntries([k].flat().map((x) => [x, mem[x]])), set: async (o) => Object.assign(mem, o) };
-const { createLearner, fingerprint } = await import("../extension/youtube/personal.js");
-let s = 1;
-const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647) - 0.5;
-const centre = () => Float32Array.from({ length: 1536 }, rnd);
-const near = (c) => [Float32Array.from(c, (x) => x * 4 + rnd() * 3)]; // one fingerprint near a topic centre
-const A = centre(), B = centre();
-const vid = (i, c, ch) => ({ id: "v" + i, title: "t" + i, channel: ch, print: { t: fingerprint(near(c)), i: fingerprint(near(c)) } });
-const L = createLearner(storage);
-await L.load();
+const { createClicks } = await import("../extension/youtube/personal.js");
+const C = createClicks(storage);
+await C.load();
 let bad = 0;
 const expect = (what, ok) => { if (!ok) bad++; console.log(`${ok ? "ok  " : "FAIL"} ${what}`); };
+const vid = (id, channel) => ({ id, title: "t " + id, channel });
 
-expect("no opinion before any feedback", L.judge(vid(0, A, "x")).verdict === null);
-for (let i = 1; i <= 4; i++) await L.feedback(vid(i, A, "chan" + i), false); // 👎 four "A" videos
-for (let i = 10; i < 30; i++) L.shown(vid(i, B, "b" + i)); // shown "B" videos, not disliked
-await L.feedback(vid(5, B, "bb"), true);
-const hiddenA = Array.from({ length: 20 }, (_, i) => L.judge(vid(100 + i, A, "new" + i)).verdict === "hide").filter(Boolean).length;
-const hiddenB = Array.from({ length: 20 }, (_, i) => L.judge(vid(200 + i, B, "new" + i)).verdict === "hide").filter(Boolean).length;
-expect(`learned: hides new videos like the disliked ones (${hiddenA}/20)`, hiddenA >= 16);
-expect(`learned: leaves the other kind alone (${hiddenB}/20 hidden)`, hiddenB <= 2);
-await L.feedback(vid(300, B, "grumpy"), false);
-await L.feedback(vid(301, B, "grumpy"), false);
-expect("a channel with 2 dislikes is hidden", L.judge(vid(302, B, "grumpy")).why === "a channel you disliked");
-await L.feedback(vid(400, A, "fan"), true);
-expect("an explicit like always shows", L.judge(vid(400, A, "fan")).verdict === "show");
+expect("the old learner's clicks are kept", C.judge(vid("old", "c")).why === "you disliked it");
+expect("no opinion on a video you didn't rate", C.judge(vid("a", "x")).verdict === null);
+await C.feedback(vid("a", "x"), true);
+expect("a 👍 shows that video", C.judge(vid("a", "x")).verdict === "show");
+await C.feedback(vid("g1", "grumpy"), false);
+expect("one 👎 on a channel doesn't hide it", C.judge(vid("g9", "grumpy")).verdict === null);
+await C.feedback(vid("g2", "grumpy"), false);
+expect("a channel with 2 👎 is hidden", C.judge(vid("g9", "grumpy")).why === "a channel you disliked");
+await C.feedback(vid("f1", "fan"), false);
+await C.feedback(vid("f2", "fan"), false);
+await C.feedback(vid("f3", "fan"), true);
+expect("…unless you've also 👍 it", C.judge(vid("f9", "fan")).verdict === null);
+expect(`stats (${JSON.stringify(C.stats())})`, C.stats().likes === 2 && C.stats().dislikes === 5 && C.stats().channels.join() === "grumpy");
 await new Promise((r) => setTimeout(r, 600));
-const L2 = createLearner(storage);
-await L2.load();
-expect(`remembered across sessions (${L2.stats().dislikes} dislikes, learning ${L2.stats().learning})`, L2.stats().dislikes === 6 && L2.stats().learning);
+const C2 = createClicks(storage);
+await C2.load();
+expect("remembered across sessions", C2.stats().dislikes === 5 && C2.judge(vid("g2", "grumpy")).verdict === "hide");
 console.log(bad ? `\n${bad} failed` : "\nCHECK OK");
 process.exit(bad ? 1 : 0);

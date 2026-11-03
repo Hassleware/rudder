@@ -36,14 +36,13 @@ The default pipeline:
 |---|---|---|
 | **your-clicks** | You liked or disliked this exact video before | Instant |
 | **keywords** | Your filters' words, and words related to them, in the title or channel name | Instant |
-| **learned** | A small model of your own likes and dislikes, and channels you've disliked twice | A few ms |
 | **thumbnail-text** | Your filters' words in the text written on the thumbnail | ~60–300 ms |
 
 **Filters** are plain phrases like "video games" or "news, war, death". Each one expands into a list of words and related words: "news" also catches news channel names, "video games" catches game titles (`extension/youtube/keywords.js`). Rudder ships with 31 filters, and you can add or remove any of them in the popup.
 
 The **thumbnail-text** stage reads the text on thumbnails with Tesseract OCR (`extension/ocr.js`). OCR often turns noise into short words, so only matches of 4+ letters count.
 
-Slow stages run in batches, nearest the screen first, and only for videos no earlier stage has decided. What they learn about a video (its thumbnail text, its fingerprint, apps' answers) is remembered, so a video seen before is decided at once.
+Slow stages run in batches, nearest the screen first, and only for videos no earlier stage has decided. What they learn about a video (its thumbnail text, apps' answers) is remembered, so a video seen before is decided at once.
 
 Other programs on your computer can change this pipeline or replace it completely; see [The API](#the-api) below.
 
@@ -67,11 +66,11 @@ You can tell Rudder what you like in two places:
 - **"Rudder: more like this" / "less like this"** in every video's ⋮ menu.
 - **YouTube's own like and dislike buttons** on the video or short you're watching. They show Rudder's blue and red rudders, and one click tells both YouTube and Rudder.
 
-Rudder turns each title and channel into a fingerprint with a small text model (MiniLM, `extension/text.js`) and trains a tiny classifier on your clicks (`extension/youtube/personal.js`). It starts after 3 dislikes and hides a video only when it's more than 75% sure you'd dislike it. A channel you've disliked twice, and never liked, is hidden.
+Rudder remembers each rating (`extension/youtube/personal.js`): a video you rated is shown or hidden by your rating, and a channel you've disliked twice, and never liked, is hidden. Learning what *else* you'd dislike is left to apps, which get every rating with the video's record (`WatchFeedback`): Hull learns it with Gemma. (Rudder had a small MiniLM model for this until 2026-11-03; on real use it never hid a video.)
 
 ### 5. The popup
 
-The popup has one switch, filtering on or off, and otherwise shows statistics: how many videos were checked and hidden, your likes and dislikes, whether the learned model is on, the pipeline with how many videos each stage hid, your filters (add and remove), hidden channels, and recently hidden videos with the reason. Apps can add their own panels to it. A stage whose app isn't running is marked in the pipeline (striped when it's hiding what it would check).
+The popup has one switch, filtering on or off, and otherwise shows statistics: how many videos were checked and hidden, your likes and dislikes, how many channels you've hidden by disliking them, the pipeline with how many videos each stage hid, your filters (add and remove), hidden channels, and recently hidden videos with the reason. Apps can add their own panels to it. A stage whose app isn't running is marked in the pipeline (striped when it's hiding what it would check).
 
 ## The API
 
@@ -86,7 +85,7 @@ The full reference is [API.md](../API.md), and [postman.md](postman.md) shows ho
 
 ## Why it's built this way
 
-- **No language model.** Rudder first used Gemma, a language model, on the GPU. It took ~45 seconds to load and 2.8 GB of graphics memory, and keywords were doing ~90% of the hiding anyway. Keywords, OCR and a tiny learned model on the processor show the first video in ~2.5 seconds. [history.md](history.md) tells the whole story.
+- **No language model.** Rudder first used Gemma, a language model, on the GPU. It took ~45 seconds to load and 2.8 GB of graphics memory, and keywords were doing ~90% of the hiding anyway. Keywords and OCR on the processor show the first video in ~2.5 seconds. [history.md](history.md) tells the whole story.
 - **Manifest V2.** It's the only way in Firefox to read responses as they arrive (`webRequest.filterResponseData`) and keep a background page alive.
 - **Strict over convenient.** For someone avoiding a topic that upsets them, one video slipping through is worse than ten harmless ones hidden.
 
@@ -100,8 +99,8 @@ The full reference is [API.md](../API.md), and [postman.md](postman.md) shows ho
 | `extension/youtube/intercept.js` | Reads YouTube's data and thumbnails into video records; answers the page's "may I show this?" |
 | `extension/youtube/feed.js`, `hide.css`, `page.js` | The page side: hiding, revealing, filling, the Shorts viewer, menus, like buttons |
 | `extension/youtube/keywords.js` | Filter phrases → words and related words |
-| `extension/youtube/personal.js` | The like/dislike learner |
-| `extension/ocr.js`, `text.js` | Tesseract OCR, MiniLM fingerprints |
+| `extension/youtube/personal.js` | Your likes and dislikes |
+| `extension/ocr.js` | Tesseract OCR |
 | `extension/api.js`, `panel.js`, `timing.js` | The link to the bridge, apps' popup panels, stage timings |
 | `extension/popup.html`, `popup.js` | The popup |
 | `bridge/` | The local gRPC server and its contract (`rudder.proto`) |

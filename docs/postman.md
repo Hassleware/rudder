@@ -54,7 +54,6 @@ Messages are JSON with the field names from `rudder.proto`. Leave a field out to
     { "id": "your-clicks", "kind": "your-clicks" },
     { "id": "keywords", "kind": "keywords" },
     { "id": "postman", "kind": "app", "config": { "name": "postman", "when_missing": "pass" } },
-    { "id": "learned", "kind": "learned" },
     { "id": "thumbnail-text", "kind": "thumbnail-text" }
   ]
 }

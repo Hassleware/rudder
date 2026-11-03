@@ -17,8 +17,8 @@ const until = async (ok) => { for (let i = 0; i < 100 && !ok(); i++) await new P
 
 const bridge = py("bridge.py");
 await line(bridge, /apps on grpc/);
-let filters = ["news"], enabled = true, stages = [{ id: "your-clicks", kind: "your-clicks", config: {} }, { id: "keywords", kind: "keywords", config: {} }, { id: "learned", kind: "learned", config: {} }];
-const KINDS = ["your-clicks", "keywords", "learned", "thumbnail-text", "app"], panels = [];
+let filters = ["news"], enabled = true, stages = [{ id: "your-clicks", kind: "your-clicks", config: {} }, { id: "keywords", kind: "keywords", config: {} }, { id: "thumbnail-text", kind: "thumbnail-text", config: {} }];
+const KINDS = ["your-clicks", "keywords", "thumbnail-text", "app"], panels = [];
 let appsChanges = 0;
 record("keywords (a video)", 2);
 const api = startApi({
@@ -49,7 +49,7 @@ out = queue.Queue(); out.put(pb.StageMessage(hello=pb.StageHello(name='example')
 for req in r.Stage(iter(out.get, None)):
     res = [pb.StageResult(decision=pb.HIDE if 'minecraft' in v.title.lower() else pb.PASS, why='title has minecraft' if 'minecraft' in v.title.lower() else '', fields={'title_words': str(len(v.title.split()))}) for v in req.videos]
     out.put(pb.StageMessage(reply=pb.StageReply(id=req.id, results=res)))`);
-assert.match(await line(app, /pipeline:/), /\['your-clicks', 'keywords', 'example', 'learned'\]/);
+assert.match(await line(app, /pipeline:/), /\['your-clicks', 'keywords', 'example', 'thumbnail-text'\]/);
 assert.deepEqual(stages[2], { id: "example", kind: "app", config: { name: "example" } });
 await until(() => api.has("example"));
 const rec = (id, title) => ({ id, title, channel: "", description: "", published: "", duration_seconds: 0, seen_at_ms: 1, thumbnail: new Uint8Array([1, 2, 3]), thumbnail_type: "image/jpeg", thumbnail_url: "", source: "browse", short: false, fields: { thumbnail_text: "x" } });

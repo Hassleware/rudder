@@ -12,8 +12,8 @@ Rudder is a Firefox extension (Manifest V2) that filters YouTube recommendations
 | `extension/youtube/feed.js`, `hide.css`, `page.js` | Content script, CSS and page script: hide until decided, reveal in order, fill the feed, Shorts, menus |
 | `extension/youtube/captions.js` | Captions of watched videos: reads the player's English caption download, sends lines as you watch them |
 | `extension/youtube/keywords.js` | Filter phrase → words, related words, safe phrases |
-| `extension/youtube/personal.js` | Like/dislike learner (MiniLM fingerprints + logistic regression) |
-| `extension/ocr.js`, `text.js` | Tesseract OCR; MiniLM embeddings (transformers.js, WASM, CPU) |
+| `extension/youtube/personal.js` | Your 👍 / 👎: rated videos and twice-disliked channels (learning from them is an app's job: WatchFeedback) |
+| `extension/ocr.js` | Tesseract OCR (WASM, CPU) |
 | `extension/api.js` | WebSocket client to the bridge (127.0.0.1:7834) |
 | `extension/popup.*`, `panel.js`, `timing.js` | Stats-only popup; apps' panels; stage timings |
 | `bridge/bridge.py`, `bridge/rudder.proto` | Local gRPC server on **127.0.0.1:7833** and its contract; `rudder_pb2*` are generated |
@@ -26,7 +26,7 @@ Rudder is a Firefox extension (Manifest V2) that filters YouTube recommendations
 ```
 npm install            # also copies transformers.js and Tesseract into extension/vendor/
 npm start              # a separate Firefox with the extension, reloading on save (profile: .dev-profile/)
-npm test               # keywords, filter renames, learner, pipeline + YouTube parsing
+npm test               # keywords, filter renames, your ratings, pipeline + YouTube parsing, captions
 npm run test:bridge    # the API end to end (needs: pip install -r bridge/requirements.txt)
 npm run lint           # web-ext lint, as addons.mozilla.org does
 npm run build          # dist/*.zip

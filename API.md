@@ -34,7 +34,6 @@ The default pipeline:
 |---|---|---|
 | `your-clicks` | `your-clicks` | Your own like or dislike on this exact video: show or hide |
 | `keywords` | `keywords` | The filters' words in the title or channel: hide |
-| `learned` | `learned` | Your like/dislike model, and channels you disliked: hide. Adds `dislike_chance` |
 | `thumbnail-text` | `thumbnail-text` | The filters' words in the thumbnail's text (OCR): hide. Adds `thumbnail_text` |
 
 Stage settings (`config`):
@@ -43,7 +42,6 @@ Stage settings (`config`):
 |---|---|
 | `keywords`, `thumbnail-text` | `filters`: their own list instead of the popup's |
 | `thumbnail-text` | `min_letters`: shortest word that counts (default 4; OCR makes short words out of noise) |
-| `learned` | `can_show`: also show videos like ones you liked (a show skips every stage after it) |
 | `app` | `name`: the app that runs it. `when_missing`: `hide` (default) or `pass` while that app isn't running. `remember`: `false` to be asked again each time YouTube sends the video. Anything else is passed to your app |
 
 `SetPipeline` replaces the whole list, so it can add, remove, reorder or reconfigure stages. A pipeline of just your own app stage replaces Rudder's filtering entirely. Sending no stages restores the default. A wrong pipeline (an unknown kind, a repeated id, an app stage without a name) is refused and nothing changes. The pipeline is kept across restarts, and the popup shows it with how many videos each stage hid.
@@ -74,7 +72,7 @@ Every video in the API (stage requests, `WatchVideos`, `GetVideos`, `Test`) has 
 | `thumbnail`, `thumbnail_type`, `thumbnail_url` | The image Firefox downloaded for the page, its type and address |
 | `source` | Where it came from: `browse` (home, channels), `next` (watch page), `search`, `reel_watch_sequence` (Shorts), `player`, `page`, `tile` |
 | `short` | A Short |
-| `fields` | Added by earlier stages: `thumbnail_text`, `dislike_chance`, and your apps' fields |
+| `fields` | Added by earlier stages: `thumbnail_text`, and your apps' fields |
 
 Rudder makes no requests to YouTube itself, so fields YouTube didn't send are empty rather than fetched. The thumbnail is the one the page loaded; a video whose thumbnail came from the browser's cache has none. Reload the page for complete records.
 
@@ -135,11 +133,9 @@ Every stage is timed: count and mean since the last reset, and p50, p95, max and
 
 | Stage | Is |
 |---|---|
-| `<stage id> (a batch)` | One batch of a slow stage: `learned`, `thumbnail-text`, your app stages |
+| `<stage id> (a batch)` | One batch of a slow stage: `thumbnail-text`, your app stages |
 | `keywords (a video)` | Keyword check on one title |
 | `ocr (a thumbnail)` | Reading one thumbnail's text |
-| `fingerprints (a batch)` | MiniLM on a batch of titles |
-| `learner train` | Retraining the like/dislike model |
 | `feedback (a click)` | A like or dislike, start to finish |
 | `video: data to verdict` | From YouTube's data arriving to the pipeline deciding |
 | `video: data to shown` | From YouTube's data arriving to the video appearing on screen |

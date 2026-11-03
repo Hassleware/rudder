@@ -1,19 +1,16 @@
 // Rudder's background page. Every YouTube video goes through a pipeline of stages (pipeline.js), on the processor:
-//   your-clicks     your own 👍 / 👎 on this exact video
+//   your-clicks     your own 👍 / 👎 on this exact video, and channels you've disliked twice (youtube/personal.js)
 //   keywords        the filters' words in its title and channel (youtube/keywords.js; instant)
-//   learned         your own algorithm (youtube/personal.js): MiniLM reads each title into a fingerprint (text.js) and
-//                   a small model learns what you don't want from your 👍 / 👎; channels you disliked
 //   thumbnail-text  the filters' words in its thumbnail's text, read by Tesseract (ocr.js, ~60 ms a thumbnail)
 // Apps on this computer can add their own stages (kind "app"), reorder or reconfigure these, or replace them all
-// (bridge/: API.md). Gemma (WebLLM on the GPU) judged videos until 2026-10-31; keywords did ~90% of the hiding and
-// Gemma's own calls were right about half the time, for a 45 s load and 2.8 GB of graphics memory (docs/history.md).
-import { setEnabled, stats, setPrinter, recentHidden, feedback, forget, learner, test, redecide, recordOf, setSink, setShownSink, setFeedbackSink, recheckTabs } from "./youtube/intercept.js";
+// (bridge/: API.md). Learning what you'd dislike from your 👍 / 👎 is an app's job (WatchFeedback): Hull does it with
+// Gemma. Gemma in the browser (until 2026-10-31) and a MiniLM learner (until 2026-11-03) did it here before
+// (docs/history.md).
+import { setEnabled, stats, recentHidden, feedback, forget, clicks, test, redecide, recordOf, setSink, setShownSink, setFeedbackSink, recheckTabs } from "./youtube/intercept.js";
 import { timed, timings, record } from "./timing.js";
 import { defineKind, setPipeline, getPipeline, kindNames, PASS } from "./pipeline.js";
 import { keywordMatch } from "./youtube/keywords.js";
 import { readThumbnail } from "./ocr.js";
-import { embed } from "./text.js";
-import { fingerprint } from "./youtube/personal.js";
 import { startApi } from "./api.js";
 import { createCaptions } from "./youtube/captions.js";
 import { tap } from "./youtube/intercept.js";
@@ -34,10 +31,8 @@ const send = (msg) => ports.forEach((p) => p.postMessage(msg));
 // ---- the built-in stage kinds (pipeline.js). "keywords" and "thumbnail-text" use the popup's filters unless their
 // config has its own { filters: [...] } ----
 const filtersOf = (config) => (Array.isArray(config.filters) ? config.filters.map(String) : yt.filters.map((f) => f.sentence));
-const textOf = (v) => (v.channel ? `${v.title} — ${v.channel}` : v.title);
-const print = async (v) => ({ t: fingerprint(await embed([textOf(v)])), i: null });
 defineKind("your-clicks", {
-  check(v) { const r = learner.judge(v); return r.explicit ? { decision: r.verdict, why: r.why } : PASS; },
+  check(v) { const r = clicks.judge(v); return r.verdict ? { decision: r.verdict, why: r.why } : PASS; },
 });
 defineKind("keywords", {
   check(v, config) {
@@ -46,19 +41,6 @@ defineKind("keywords", {
       for (const s of filtersOf(config)) { const m = keywordMatch(s, v.title, v.channel); if (m) return { decision: "hide", why: `${s} (keyword: ${m})`, filter: s }; }
       return PASS;
     } finally { record("keywords (a video)", performance.now() - t); }
-  },
-});
-// hides; it only shows ("like videos you liked", a channel you liked) with config { can_show: true }, since a show
-// skips every stage after it
-defineKind("learned", {
-  check(v, config) {
-    if (v.print === undefined) return null; // fingerprint first
-    const r = learner.judge(v), fields = r.p != null ? { dislike_chance: r.p.toFixed(2) } : undefined;
-    return r.explicit || !r.verdict || (r.verdict === "show" && !config.can_show) ? { decision: "pass", fields } : { decision: r.verdict, why: r.why, fields };
-  },
-  async batch(vs) { // no fingerprint (an error) = the model says nothing; channels still count
-    const vecs = await timed("fingerprints (a batch)", () => embed(vs.map(textOf))).catch((err) => { console.warn("rudder: fingerprints unavailable:", err); return null; });
-    vs.forEach((v, i) => { v.print = vecs ? { t: fingerprint([vecs[i]]), i: null } : null; });
   },
 });
 defineKind("thumbnail-text", {
@@ -102,11 +84,9 @@ defineKind("app", {
     });
   },
 });
-setPrinter(print);
-learner.load().then(() => learner.reprint(print)).catch(() => {});
 
 // ---- the pipeline: the default, or the one an app set (kept in extension storage) ----
-const DEFAULT_PIPELINE = [{ id: "your-clicks", kind: "your-clicks" }, { id: "keywords", kind: "keywords" }, { id: "learned", kind: "learned" }, { id: "thumbnail-text", kind: "thumbnail-text" }];
+const DEFAULT_PIPELINE = [{ id: "your-clicks", kind: "your-clicks" }, { id: "keywords", kind: "keywords" }, { id: "thumbnail-text", kind: "thumbnail-text" }];
 const pipelineState = () => ({ stages: getPipeline(), kinds: kindNames() });
 // an empty list restores the default; throws (changing nothing) if the list is wrong
 function usePipeline(list, save = true) {
@@ -119,7 +99,8 @@ function usePipeline(list, save = true) {
 setPipeline(DEFAULT_PIPELINE);
 browser.storage.local.get("pipeline").then((r) => {
   if (!r.pipeline?.length) return;
-  try { usePipeline(r.pipeline, false); } catch (err) { console.warn("rudder: saved pipeline unusable, using the default:", err); }
+  // a saved pipeline may still have the old MiniLM learner's stage ("learned"): it's gone
+  try { usePipeline(r.pipeline.filter((st) => st.kind !== "learned"), false); } catch (err) { console.warn("rudder: saved pipeline unusable, using the default:", err); }
 }).catch(() => {});
 
 // settings: the popup's filter list (any number of sentences) and the on/off switch, kept in extension storage

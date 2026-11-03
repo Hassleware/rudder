@@ -17,8 +17,6 @@
   "permissions": [
     "storage",
     "unlimitedStorage",
-    "https://huggingface.co/*",
-    "https://*.hf.co/*",
     "webRequest",
     "webRequestBlocking",
     "https://www.youtube.com/*",

@@ -9,14 +9,12 @@
 //   - the page's thumbnail downloads from i.ytimg.com (same way): the image bytes, before the page decodes them
 // youtube/feed.js keeps each home tile hidden until verdict() says it may be shown: after its title has been read,
 // the pipeline (pipeline.js) has passed it and its thumbnail has been read. Rejected tiles are removed from the grid.
-import { createLearner, packPrint, unpackPrint } from "./personal.js";
+import { createClicks } from "./personal.js";
 import { record, timed } from "../timing.js";
 import { decide, settle, onSettled, pending } from "../pipeline.js";
-// your own algorithm: learns from the 👍 / 👎 in each video's ⋮ menu (youtube/personal.js)
-export const learner = createLearner();
-learner.load();
-let printer = null; // background.js: a video's fingerprint, for videos clicked before they were fingerprinted
-export const setPrinter = (fn) => { printer = fn; };
+// your 👍 / 👎 (youtube/personal.js)
+export const clicks = createClicks();
+clicks.load();
 export const videos = new Map(); // id → { id, title, channel, thumbnail, order, shelf, short, seenAt, image, imageAt, ... }
 let order = 0;
 const now = () => Date.now();
@@ -148,12 +146,12 @@ browser.webRequest.onBeforeRequest.addListener((d) => {
 }, { urls: ["https://i.ytimg.com/vi/*", "https://i.ytimg.com/vi_webp/*"], types: ["image"] }, ["blocking"]);
 
 // Deciding: every video goes through the pipeline (pipeline.js; its stages are set in background.js and by apps).
-// What the slow stages learn about a video (its thumbnail's text, its fingerprint, apps' answers) is kept per video in
+// What the slow stages learn about a video (its thumbnail's text, apps' answers) is kept per video in
 // extension storage, so a video seen before is decided at once. Every video is decided as soon as YouTube's data
 // arrives, before its tile exists; tiles' distance from the screen only sets the order.
 const MEM = "rudder-memory-v1";
 let enabled = true, saveTimer = null, sink = null, shownSink = null, feedbackSink = null;
-const tabs = new Set(), memory = new Map(); // memory: id → { ocr, print, app }
+const tabs = new Set(), memory = new Map(); // memory: id → { ocr, app }
 browser.storage.local.get(null).then((all) => {
   for (const [id, m] of Object.entries(all[MEM] ?? {})) memory.set(id, m);
   for (const v of videos.values()) v.recalled = false;
@@ -164,12 +162,11 @@ function recall(v) {
   const m = memory.get(v.id);
   if (!m) return;
   if (v.ocr === undefined && m.ocr !== undefined) v.ocr = m.ocr;
-  if (v.print === undefined && m.print) v.print = unpackPrint(m.print);
   v.app = { ...m.app, ...v.app };
 }
 function remember(v) {
   memory.delete(v.id);
-  memory.set(v.id, { ocr: v.ocr, print: v.print ? packPrint(v.print) : undefined, app: v.app });
+  memory.set(v.id, { ocr: v.ocr, app: v.app });
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => browser.storage.local.set({ [MEM]: Object.fromEntries([...memory].slice(-5000)) }).catch(() => {}), 2000); // the newest 5000
 }
@@ -219,7 +216,7 @@ export function stats() {
   const ds = [...videos.values()].filter((v) => v.title).map((v) => outcome(v, false)).filter((d) => d.state !== "wait");
   const hidden = ds.filter((d) => d.state === "hide");
   const count = (key) => hidden.reduce((o, d) => { if (d[key]) o[d[key]] = (o[d[key]] ?? 0) + 1; return o; }, {});
-  return { learning: learner.stats(), checked: ds.length, waiting: pending(), hidden: hidden.length, by: count("filter"), byStage: count("stage") };
+  return { learning: clicks.stats(), checked: ds.length, waiting: pending(), hidden: hidden.length, by: count("filter"), byStage: count("stage") };
 }
 // the newest hidden videos and why (popup: "Recently hidden")
 export function recentHidden(n = 25) {
@@ -257,25 +254,21 @@ browser.runtime.onMessage.addListener((msg, sender) => {
     return Promise.resolve(Object.fromEntries(msg.tiles.map((t) => [t.id, verdict(t)])));
   }
   if (msg?.type === "yt-shown") shownSink?.(msg.ids, msg.at);
-  if (msg?.type === "yt-shown") for (const id of msg.ids) { const v = videos.get(id); if (v) { if (!v.shownAt && v.seenAt) record("video: data to shown", msg.at - v.seenAt); v.shownAt ??= msg.at; learner.shown(v); } }
+  if (msg?.type === "yt-shown") for (const id of msg.ids) { const v = videos.get(id); if (v) { if (!v.shownAt && v.seenAt) record("video: data to shown", msg.at - v.seenAt); v.shownAt ??= msg.at; } }
   if (msg?.type === "rudder-feedback") return feedback(msg);
 });
 
-// A 👍 / 👎 from a video's ⋮ menu (or the popup): learn it, then every open YouTube tab re-checks what it shows, so
-// videos like a disliked one go at once.
+// A 👍 / 👎 from a video's ⋮ menu or YouTube's like buttons: kept, passed to apps (Hull learns from it), then every
+// open YouTube tab re-checks what it shows, so a disliked video (or channel) goes at once.
 export const feedback = (msg) => timed("feedback (a click)", () => learn1(msg));
 async function learn1({ id, like, title, channel }) {
   let v = videos.get(id);
   if (!v) videos.set(id, (v = { id, title, channel, order: ++order, source: "feedback", seenAt: now() }));
   v.title ??= title; v.channel ??= channel;
-  await learner.feedback(v, like); // counts at once
+  await clicks.feedback(v, like); // counts at once
   feedbackSink?.(v, like);
   recheckTabs();
-  if (!v.print && printer) { // a video never fingerprinted (e.g. hidden by a keyword first): fingerprint it, then learn from it
-    try { v.print = await printer(v); } catch (err) { console.warn("rudder: fingerprint failed:", err); }
-    if (v.print && learner.has(v.id)) { await learner.feedback(v, like); recheckTabs(); } // unless it was forgotten meanwhile
-  }
-  return { ok: true, learned: !!v.print, stats: learner.stats() };
+  return { ok: true, stats: clicks.stats() };
 }
 // Videos through the whole pipeline without showing, counting or remembering them (bridge: Test). For your own tests:
 // [{ id?, title, channel?, description?, published?, duration_seconds?, image?, fields? }]
@@ -289,5 +282,5 @@ export async function test(list) {
     return { id: v.id, hidden: d.state === "hide", decided_by: d.stage ?? "", why: d.why, fields: recordOf(v).fields, trace: d.trace };
   })));
 }
-export function forget() { learner.forget(); recheckTabs(); }
+export function forget() { clicks.forget(); recheckTabs(); }
 export const recheckTabs = () => { for (const t of tabs) browser.tabs.sendMessage(t, { type: "yt-recheck" }).catch(() => {}); };
