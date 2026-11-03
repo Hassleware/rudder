@@ -267,6 +267,7 @@ browser.runtime.onMessage.addListener((msg, sender) => {
   if (msg?.type === "yt-shown") shownSink?.(msg.ids, msg.at);
   if (msg?.type === "yt-shown") for (const id of msg.ids) { const v = videos.get(id); if (v) { if (!v.shownAt && v.seenAt) record("video: data to shown", msg.at - v.seenAt); v.shownAt ??= msg.at; } }
   if (msg?.type === "rudder-feedback") return feedback(msg);
+  if (msg?.type === "rudder-greenlight") return greenlight(msg);
 });
 
 // A 👍 / 👎 from a video's ⋮ menu or YouTube's like buttons: kept, passed to apps (Hull learns from it), then every
@@ -280,6 +281,16 @@ async function learn1({ id, like, title, channel }) {
   feedbackSink?.(v, like);
   recheckTabs();
   return { ok: true, stats: clicks.stats() };
+}
+// Greenlight a channel (on) or not, from a video's ⋮ menu (its channel as Rudder's data has it, else as the tile shows
+// it) or the popup; open YouTube tabs re-check, so its hidden videos come back
+export async function greenlight({ id, channel, on = true }) {
+  await clicks.load();
+  const ch = (id && videos.get(id)?.channel) || channel;
+  if (!ch) return { ok: false };
+  clicks.greenlight(ch, on);
+  recheckTabs();
+  return { ok: true, channel: ch };
 }
 // Videos through the whole pipeline without showing, counting or remembering them (bridge: Test). For your own tests:
 // [{ id?, title, channel?, description?, published?, duration_seconds?, image?, fields? }]

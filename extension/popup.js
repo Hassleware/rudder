@@ -1,9 +1,10 @@
 // The toolbar popup: Rudder's statistics, and the filter list (add, remove). Everything lives in background.js.
 const $ = (id) => document.getElementById(id);
 const port = browser.runtime.connect();
-let filters = [], shown = "";
+let filters = [], related = new Set(), shown = "";
 const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt !== undefined) e.textContent = txt; return e; };
-const save = (list) => port.postMessage({ type: "set-filters", filters: list });
+// each filter with its switch: exact (its words as written) or related (and words tied to them)
+const save = (list) => port.postMessage({ type: "set-filters", filters: list.map((f) => (typeof f === "object" ? f : { sentence: f, related: related.has(f) })) });
 const fill = (ul, items) => ul.replaceChildren(...(items.length ? items : [el("li", "empty", "—")]));
 
 function render(state) {
@@ -20,8 +21,9 @@ function render(state) {
   $("model").textContent = (l.channels ?? []).length;
 
   filters = state.filters;
+  related = new Set(state.related ?? []);
   const top = Math.max(1, ...filters.map((f) => s.by[f] ?? 0));
-  const key = JSON.stringify([filters, s.by, state.stages, s.byStage, state.waiting]);
+  const key = JSON.stringify([filters, state.related, s.by, state.stages, s.byStage, state.waiting, l.greenlit]);
   if (key === shown) return; // unchanged: don't rebuild under the cursor
   shown = key;
   // the pipeline's stages in order (apps can change them), each with how many videos it hid
@@ -36,11 +38,22 @@ function render(state) {
     return li;
   }));
   fill($("list"), filters.map((f) => {
-    const li = el("li"), bar = el("div", "bar"), del = el("button", "", "×");
+    const li = el("li"), bar = el("div", "bar"), del = el("button", "", "×"), on = related.has(f);
+    const mode = el("button", "mode", on ? "+RELATED" : "EXACT");
+    mode.setAttribute("aria-pressed", String(on));
+    mode.title = on ? "Also hides words tied to it: click for these words only" : "Hides these words only: click to also hide words tied to it";
+    mode.addEventListener("click", () => save(filters.map((x) => ({ sentence: x, related: x === f ? !on : related.has(x) }))));
     bar.style.width = `${(100 * (s.by[f] ?? 0)) / top}%`;
     del.setAttribute("aria-label", `Remove ${f}`);
     del.addEventListener("click", () => save(filters.filter((x) => x !== f)));
-    li.append(bar, el("span", "name", f), el("span", "n", s.by[f] ?? 0), del);
+    li.append(bar, el("span", "name", f), el("span", "n", s.by[f] ?? 0), mode, del);
+    return li;
+  }));
+  fill($("greenlit"), (l.greenlit ?? []).map((c) => {
+    const li = el("li"), del = el("button", "", "×");
+    del.setAttribute("aria-label", `Stop greenlighting ${c}`);
+    del.addEventListener("click", () => port.postMessage({ type: "rudder-greenlight", channel: c, on: false }));
+    li.append(el("span", "name", c), del);
     return li;
   }));
   fill($("channels"), (l.channels ?? []).map((c) => { const li = el("li"); li.append(el("span", "name", c)); return li; }));

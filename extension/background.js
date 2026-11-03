@@ -6,10 +6,10 @@
 // (bridge/: API.md). Learning what you'd dislike from your 👍 / 👎 is an app's job (WatchFeedback): Hull does it with
 // Gemma. Gemma in the browser (until 2026-10-31) and a MiniLM learner (until 2026-11-03) did it here before
 // (docs/history.md).
-import { setEnabled, stats, recentHidden, feedback, forget, clicks, test, redecide, recordOf, setSink, setShownSink, setFeedbackSink, recheckTabs } from "./youtube/intercept.js";
+import { setEnabled, stats, recentHidden, feedback, forget, greenlight, clicks, test, redecide, recordOf, setSink, setShownSink, setFeedbackSink, recheckTabs } from "./youtube/intercept.js";
 import { timed, timings, record } from "./timing.js";
 import { defineKind, setPipeline, getPipeline, kindNames, PASS } from "./pipeline.js";
-import { keywordMatch } from "./youtube/keywords.js";
+import { exactMatch, keywordMatch } from "./youtube/keywords.js";
 import { readThumbnail } from "./ocr.js";
 import { startApi } from "./api.js";
 import { createCaptions } from "./youtube/captions.js";
@@ -23,14 +23,19 @@ const YOUTUBE_FILTERS = ["video games", "AI", "tech companies, coding, cyber sec
   // relapse triggers (the user's request: "anything that could possibly cause an addictive person to relapse")
   "alcohol, drinking", "drugs, cigarettes, vaping", "gambling, betting, casinos", "sexual, suggestive, adult", "binge eating, junk food, food challenges", "shopping, spending, hauls", "self-harm, suicide, eating disorders", "addiction, relapse, withdrawal"];
 const SETTINGS_V = 4; // saved settings older than this are replaced by the defaults once
-let yt = { enabled: true, filters: YOUTUBE_FILTERS.map((sentence) => ({ sentence })), v: SETTINGS_V };
+// a filter matches its own words exactly unless "related" is on (then related words too: youtube/keywords.js). The
+// built-in filters were written for related words, and so were filters saved before the switch (no "related" key)
+let yt = { enabled: true, filters: YOUTUBE_FILTERS.map((sentence) => ({ sentence, related: true })), v: SETTINGS_V };
 
 const ports = new Set();
 const send = (msg) => ports.forEach((p) => p.postMessage(msg));
 
 // ---- the built-in stage kinds (pipeline.js). "keywords" and "thumbnail-text" use the popup's filters unless their
 // config has its own { filters: [...] } ----
-const filtersOf = (config) => (Array.isArray(config.filters) ? config.filters.map(String) : yt.filters.map((f) => f.sentence));
+// a stage config's own filters (apps' word lists) match related words, as they always have
+const filtersOf = (config) => (Array.isArray(config.filters) ? config.filters.map((s) => ({ sentence: String(s), related: true }))
+  : yt.filters.map((f) => ({ sentence: f.sentence, related: f.related !== false })));
+const matchOf = (f, text, channel) => (f.related ? keywordMatch : exactMatch)(f.sentence, text, channel);
 defineKind("your-clicks", {
   check(v) { const r = clicks.judge(v); return r.verdict ? { decision: r.verdict, why: r.why } : PASS; },
 });
@@ -38,7 +43,7 @@ defineKind("keywords", {
   check(v, config) {
     const t = performance.now();
     try {
-      for (const s of filtersOf(config)) { const m = keywordMatch(s, v.title, v.channel); if (m) return { decision: "hide", why: `${s} (keyword: ${m})`, filter: s }; }
+      for (const f of filtersOf(config)) { const m = matchOf(f, v.title, v.channel); if (m) return { decision: "hide", why: `${f.sentence} (keyword: ${m})`, filter: f.sentence }; }
       return PASS;
     } finally { record("keywords (a video)", performance.now() - t); }
   },
@@ -50,9 +55,9 @@ defineKind("thumbnail-text", {
     if (v.ocr === undefined) return null;
     const fields = { thumbnail_text: v.ocr };
     // short words ("ill", "ai", "rip") are what Tesseract most often makes out of noise: on thumbnails, 4+ letters
-    for (const s of filtersOf(config)) {
-      const m = v.ocr && keywordMatch(s, v.ocr);
-      if (m && m.split(" + ").every((w) => w.length >= (config.min_letters ?? 4))) return { decision: "hide", why: `${s} (thumbnail text: ${m})`, filter: s, fields };
+    for (const f of filtersOf(config)) {
+      const m = v.ocr && matchOf(f, v.ocr);
+      if (m && m.split(/ \+ | /).every((w) => w.length >= (config.min_letters ?? 4))) return { decision: "hide", why: `${f.sentence} (thumbnail text: ${m})`, filter: f.sentence, fields };
     }
     return { decision: "pass", fields };
   },
@@ -108,7 +113,8 @@ browser.storage.local.get("pipeline").then((r) => {
 // apps' panels for the popup (panel.js renders them; bridge: SetPanel)
 const panels = new Map();
 let api = null;
-const ytState = () => ({ type: "filters", enabled: yt.enabled, filters: yt.filters.map((f) => f.sentence), stages: getPipeline().map((s) => s.id),
+const ytState = () => ({ type: "filters", enabled: yt.enabled, filters: yt.filters.map((f) => f.sentence),
+  related: yt.filters.filter((f) => f.related !== false).map((f) => f.sentence), stages: getPipeline().map((s) => s.id),
   // app stages whose app isn't connected: they hide what they'd check (or pass it, with when_missing "pass")
   waiting: getPipeline().filter((s) => s.kind === "app" && !api?.has(s.config.name)).map((s) => ({ id: s.id, app: s.config.name, hides: s.config.when_missing !== "pass" })),
   stats: stats(), recent: recentHidden(), panels: [...panels.values()] });
@@ -122,10 +128,13 @@ function applyYoutube(how) {
 }
 function setYoutubeSettings(msg) {
   if (msg.filters) {
-    const seen = new Set(), list = [];
+    // each filter: { sentence, related } (the popup), or just its words (the API: a filter already there keeps its
+    // switch, a new one is exact)
+    const seen = new Set(), list = [], before = new Map(yt.filters.map((f) => [f.sentence.toLowerCase(), f.related !== false]));
     for (const raw of msg.filters) {
-      const s = String(raw).replace(/\s+/g, " ").trim().slice(0, 200);
-      if (s && !seen.has(s.toLowerCase())) { seen.add(s.toLowerCase()); list.push({ sentence: s }); }
+      const s = String(raw?.sentence ?? raw).replace(/\s+/g, " ").trim().slice(0, 200);
+      const related = typeof raw === "object" && raw ? !!raw.related : (before.get(s.toLowerCase()) ?? false);
+      if (s && !seen.has(s.toLowerCase())) { seen.add(s.toLowerCase()); list.push({ sentence: s, related }); }
     }
     yt = { ...yt, filters: list };
   }
@@ -161,7 +170,7 @@ const RENAMED = {"anything about video games": "video games", "anything about AI
 browser.storage.local.get("yt-settings").then((r) => {
   const saved = r["yt-settings"];
   if (saved?.filters?.some((f) => RENAMED[f.sentence])) {
-    saved.filters = saved.filters.map((f) => ({ sentence: RENAMED[f.sentence] ?? f.sentence }));
+    saved.filters = saved.filters.map((f) => ({ ...f, sentence: RENAMED[f.sentence] ?? f.sentence }));
     browser.storage.local.set({ "yt-settings": saved }).catch(() => {});
   }
   if (saved?.v >= SETTINGS_V) { yt = saved; applyYoutube("reset"); }
@@ -179,6 +188,7 @@ browser.runtime.onConnect.addListener((port) => {
     if (msg.type === "rudder-like") feedback({ id: msg.id, like: true }).then(() => port.postMessage(ytState())).catch(() => {});
     if (msg.type === "panel-click") api.event(msg.panel, msg.button);
     if (msg.type === "rudder-forget") { forget(); port.postMessage(ytState()); }
+    if (msg.type === "rudder-greenlight") greenlight(msg).then(() => port.postMessage(ytState())).catch(() => {});
   });
   port.postMessage(ytState());
 });

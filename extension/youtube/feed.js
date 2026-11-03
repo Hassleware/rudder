@@ -219,6 +219,15 @@
     s.style.display = "block";
     return s;
   };
+  // a tick in Rudder's blue: greenlight this channel
+  const tick = () => {
+    const s = document.createElementNS("http://www.w3.org/2000/svg", "svg"), p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    for (const [k, v] of Object.entries({ viewBox: "0 0 24 24", width: "24", height: "24", fill: "none", stroke: "#5BB8F0", "stroke-width": "3" })) s.setAttribute(k, v);
+    p.setAttribute("d", "M4 12.5l5 5L20 6.5");
+    s.append(p);
+    s.style.display = "block";
+    return s;
+  };
   function toast(message) {
     const t = Object.assign(document.createElement("div"), { textContent: message });
     Object.assign(t.style, { position: "fixed", left: "50%", bottom: "24px", transform: "translateX(-50%)", zIndex: 99999, background: "#f2ede1", color: "#111", border: "2px solid #111", borderRadius: "0", padding: "8px 14px", font: "700 13px/1.4 ui-monospace, 'SF Mono', Menlo, Consolas, monospace", textTransform: "uppercase", letterSpacing: ".06em", transition: "opacity .3s" });
@@ -252,7 +261,7 @@
     if (!sample || list.querySelector(`[rudder-item][rudder-for="${menuFor.id}"]`)) return;
     for (const old of list.querySelectorAll("[rudder-item]")) old.remove(); // the menu is reused for the next video
     const target = menuFor, top = list.firstElementChild; // both go above YouTube's items, in order
-    for (const [like, label] of [[true, "Rudder: more like this"], [false, "Rudder: less like this"]]) {
+    for (const [like, label] of [[true, "Rudder: more like this"], [false, "Rudder: less like this"], ["green", "Rudder: greenlight this channel"]]) {
       const item = sample.cloneNode(true);
       item.setAttribute("rudder-item", ""); item.setAttribute("rudder-for", target.id);
       item.removeAttribute("has-separator");
@@ -261,12 +270,17 @@
       if (title) { const span = Object.assign(document.createElement("span"), { className: title.className, textContent: label }); title.replaceWith(span); }
       // the copied item's icon may not be drawn yet (YouTube's newer menu fills it in late): then its empty icon box
       const icon = item.querySelector("svg")?.parentElement ?? item.querySelector(".yt-icon-shape, .ytIconWrapperHost, yt-icon");
-      if (icon) icon.replaceChildren(svg(like));
+      if (icon) icon.replaceChildren(like === "green" ? tick() : svg(like));
       const act = (e) => {
         e.preventDefault(); e.stopImmediatePropagation();
         if (e.type !== "click") return;
         drop.close?.();
         document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        if (like === "green") { // none of this channel's videos are filtered from now on
+          browser.runtime.sendMessage({ type: "rudder-greenlight", id: target.id, channel: target.channel })
+            .then((r) => toast(r?.ok ? `Greenlit: ${r.channel}` : "Rudder doesn't know this video's channel yet")).catch(() => {});
+          return;
+        }
         if (!like && target.tile) { target.tile.setAttribute("rudder-verdict", "block"); settleShelves(); }
         if (!like && target.short && host() && shortId() === target.id) { host().setAttribute("rudder-verdict", "block"); skip(host(), target.id, false); } // a short you 👎: on to the next
         toast(like ? "More like this" : "Less like this");

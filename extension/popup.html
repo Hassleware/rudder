@@ -26,6 +26,10 @@
   li .bar { position: absolute; inset: 0 auto 0 0; background: var(--faint); }
   li .n { font-weight: 700; }
   #recent li, #channels li { grid-template-columns: 1fr; gap: 0; }
+  #list li { grid-template-columns: 1fr auto auto auto; }
+  #list .mode { font-size: 10px; letter-spacing: .06em; padding: 0 4px; }
+  #list .mode[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+  #greenlit li { grid-template-columns: 1fr auto; }
   #recent .why { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .empty { padding: 5px 8px; }
   button, input { font: inherit; color: var(--ink); background: var(--paper); border: 2px solid var(--ink); }
@@ -90,6 +94,8 @@
   <ul id="list"></ul>
   <form id="add"><input type="text" id="new" maxlength="200" aria-label="New filter" autocomplete="off"><button aria-label="Add filter">+</button></form>
 
+  <h2>Greenlit channels</h2>
+  <ul id="greenlit"></ul>
   <h2>Channels hidden</h2>
   <ul id="channels"></ul>
 

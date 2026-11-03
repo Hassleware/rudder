@@ -1,6 +1,12 @@
 // CPU-only check of Rudder's keyword layer against the user's real filter list (from the popup, 2026-10-31).
 // Run: node tests/keywords-check.mjs
-import { keywordMatch } from "../extension/youtube/keywords.js";
+import { exactMatch, keywordMatch } from "../extension/youtube/keywords.js";
+// exact filters: their words as written, whole words only
+for (const [f, title, want] of [["ai", "AI news this week", "ai"], ["ai", "He said it was fine", null], ["ai", "ChatGPT explained", null],
+  ["video games", "Best Video Games of 2026", "video games"], ["video games", "games for your video night", null], ["AI", "", null]]) {
+  const got = exactMatch(f, title);
+  if (got !== want) { console.log(`FAIL exact "${f}" on "${title}": ${got} (want ${want})`); process.exitCode = 1; }
+}
 
 // the merged default list (43 → 11); the old list is kept below to check nothing it caught is lost
 const FILTERS = ["video games", "AI", "tech companies, coding, cyber security", "jobs, stocks, the rich, the poor", "news, war, death", "violent, angry, mean, offensive", "depressing, doom, mood ruining, the future", "motivational", "last this or last that", "vlogbrothers", "cf3", "politics, elections, politicians", "crime, scams, true crime", "disasters, accidents, emergencies", "illness, disease, health scares", "drama, controversy, people being exposed", "rage bait, clickbait", "scary, horror, disturbing", "dieting, weight loss, body image", "conspiracies, culture wars", "animal cruelty, suffering", "breakups, cheating, toxic relationships", "climate, pollution", "alcohol, drinking", "drugs, cigarettes, vaping", "gambling, betting, casinos", "sexual, suggestive, adult", "binge eating, junk food, food challenges", "shopping, spending, hauls", "self-harm, suicide, eating disorders", "addiction, relapse, withdrawal"];

@@ -1,5 +1,5 @@
-// Rudder's first and strictest check, no model needed: does the title or channel contain a filter's words, or words
-// closely tied to them? A match hides the video at once (before the model is even loaded). Strict on purpose: some
+// Rudder's word filters, no model needed. A filter is exact (exactMatch: its words, as written, in the title or
+// channel) unless its "related" switch is on: then (keywordMatch) its words or words closely tied to them. A match hides the video at once (before the model is even loaded). Strict on purpose: some
 // harmless videos get hidden, but a video that names what a filter describes never gets through on a model's mistake.
 //
 // A filter sentence is split into alternatives at "or", "/" and commas ("poor people or rich people" → poor | rich).
@@ -150,6 +150,12 @@ export function compile(sentence) {
       // made "beats" match "beating")
       return { word: w, single: new Set(single), stems: new Set([stem(w)]), phrases: all.filter((r) => r.includes("_")).map((r) => r.replaceAll("_", " ")) };
     }));
+}
+// exact: the filter's words, in order, as whole words ("ai" matches "AI news", not "said" or "AIs"); what matched, or null
+export function exactMatch(sentence, title, channel = "") {
+  const want = words(sentence).join(" ");
+  if (!want) return null;
+  return ` ${words(`${title ?? ""} ${channel ?? ""}`).join(" ")} `.includes(` ${want} `) ? want : null;
 }
 const cache = new Map();
 // what matched (e.g. "dies" or "hero + shooters"), or null
