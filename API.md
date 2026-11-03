@@ -113,7 +113,7 @@ For other languages, generate stubs from the same file with that language's gRPC
 
 ## Panels: your app's UI in the popup
 
-A panel is an `id`, a `title` and a list of blocks, drawn in Rudder's paper-and-ink style above the pipeline. There are five block types:
+A panel is an `id`, a `title`, an optional `icon` (your app's SVG, shown at the top of the popup while your panel is up, so people see your app is connected) and a list of blocks, drawn in Rudder's paper-and-ink style above the pipeline. There are five block types:
 
 | Block | Shows |
 |---|---|

@@ -235,6 +235,9 @@ message Panel {
   string id = 1;
   string title = 2;
   repeated Block blocks = 3;
+  // your app's icon as SVG markup (up to 20 kB): while your panel is up, the popup shows it at the top, so people can
+  // see your app is connected
+  string icon = 4;
 }
 
 message Block {

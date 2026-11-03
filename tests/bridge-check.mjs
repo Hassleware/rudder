@@ -98,9 +98,10 @@ assert.match(await line(grpcPy("print('enabled:', r.SetEnabled(pb.Enabled(enable
 assert.equal(enabled, false);
 
 // a panel, and a click on its button coming back
-const clicks = grpcPy("r.SetPanel(pb.Panel(id='p', title='Mine', blocks=[pb.Block(text='hi'), pb.Block(button='Go')]))\nprint('set', flush=True)\nfor e in r.PanelEvents(pb.Empty()):\n    print('click:', e.panel, e.button, flush=True)\n    break");
+const clicks = grpcPy("r.SetPanel(pb.Panel(id='p', title='Mine', icon='<svg/>', blocks=[pb.Block(text='hi'), pb.Block(button='Go')]))\nprint('set', flush=True)\nfor e in r.PanelEvents(pb.Empty()):\n    print('click:', e.panel, e.button, flush=True)\n    break");
 await line(clicks, /set/);
 await until(() => panels.at(-1)?.id === "p");
+assert.equal(panels.at(-1).icon, "<svg/>"); // an app's icon reaches the popup
 await new Promise((r) => setTimeout(r, 300)); // PanelEvents subscribed
 api.event("p", "Go");
 assert.match(await line(clicks, /click:/), /click: p Go/);

@@ -62,6 +62,15 @@ function renderPanels(list = []) {
   if (key === panelsShown) return;
   panelsShown = key;
   $("panels").replaceChildren(...list.map((p) => renderPanel(p, (panel, button) => port.postMessage({ type: "panel-click", panel, button }))));
+  // connected apps that sent an icon: shown at the top while their panel is up
+  $("apps").replaceChildren(...list.filter((p) => p.icon && p.icon.length < 20000).map((p) => {
+    const chip = el("span", "app"), img = el("img");
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(p.icon);
+    img.alt = "";
+    chip.title = `${p.title || p.id} is connected`;
+    chip.append(img, el("span", "", `${p.title || p.id} connected`));
+    return chip;
+  }));
 }
 port.onMessage.addListener((m) => { if (m.type === "filters") { render(m); renderPanels(m.panels); } });
 const poll = setInterval(() => port.postMessage({ type: "filters" }), 1500); // live numbers while open

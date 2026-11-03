@@ -31,6 +31,9 @@
   button, input { font: inherit; color: var(--ink); background: var(--paper); border: 2px solid var(--ink); }
   button { cursor: pointer; padding: 0 6px; line-height: 18px; font-weight: 700; }
   button:hover, button:focus-visible { background: var(--ink); color: var(--paper); outline: 0; }
+  #apps { display: flex; flex-wrap: wrap; gap: 6px; margin: -6px 0 10px; }
+  #apps .app { display: flex; align-items: center; gap: 6px; border: 2px solid var(--ink); padding: 2px 8px 2px 4px; font-weight: 700; letter-spacing: .06em; font-size: 10px; text-transform: uppercase; }
+  #apps img { width: 18px; height: 18px; }
   #switch { display: grid; grid-template-columns: 1fr auto auto; align-items: center; border: 2px solid var(--ink); margin-bottom: 14px; }
   #switch .lbl { padding: 0 8px; font-weight: 700; }
   #switch button { border-width: 0 0 0 2px; padding: 4px 12px; }
@@ -66,6 +69,7 @@
 <path d="M6860.254901960783 1840.5882352941176H7165.254901960783V1308.5882352941176H7405.254901960783L7689.254901960783 1840.5882352941176H8027.254901960783L7710.254901960783 1259.5882352941176C7880.254901960783 1186.5882352941176 7974.254901960783 1039.5882352941176 7974.254901960783 835.5882352941176C7974.254901960783 542.5882352941176 7780.254901960783 350.58823529411757 7441.254901960783 350.58823529411757H6860.254901960783ZM7165.254901960783 1061.5882352941176V602.5882352941176H7384.254901960783C7571.254901960783 602.5882352941176 7659.254901960783 685.5882352941176 7659.254901960783 835.5882352941176C7659.254901960783 984.5882352941176 7571.254901960783 1061.5882352941176 7385.254901960783 1061.5882352941176Z"/>
 </svg>
 
+  <div id="apps"></div>
   <div id="switch" role="group" aria-label="Rudder's filtering"><span class="lbl" id="switch-label">FILTERING</span><button id="on" aria-pressed="true">ON</button><button id="off" aria-pressed="false">OFF</button></div>
 
   <div class="grid" id="numbers">
