@@ -219,11 +219,11 @@
     s.style.display = "block";
     return s;
   };
-  // a tick in Rudder's blue: greenlight this channel
-  const tick = () => {
+  // a tick in Rudder's blue: greenlight this channel; a cross in its red: stoplight it
+  const tick = (stop) => {
     const s = document.createElementNS("http://www.w3.org/2000/svg", "svg"), p = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    for (const [k, v] of Object.entries({ viewBox: "0 0 24 24", width: "24", height: "24", fill: "none", stroke: "#5BB8F0", "stroke-width": "3" })) s.setAttribute(k, v);
-    p.setAttribute("d", "M4 12.5l5 5L20 6.5");
+    for (const [k, v] of Object.entries({ viewBox: "0 0 24 24", width: "24", height: "24", fill: "none", stroke: stop ? "#E5484D" : "#5BB8F0", "stroke-width": "3" })) s.setAttribute(k, v);
+    p.setAttribute("d", stop ? "M6 6l12 12M18 6L6 18" : "M4 12.5l5 5L20 6.5");
     s.append(p);
     s.style.display = "block";
     return s;
@@ -261,7 +261,7 @@
     if (!sample || list.querySelector(`[rudder-item][rudder-for="${menuFor.id}"]`)) return;
     for (const old of list.querySelectorAll("[rudder-item]")) old.remove(); // the menu is reused for the next video
     const target = menuFor, top = list.firstElementChild; // both go above YouTube's items, in order
-    for (const [like, label] of [[true, "Rudder: more like this"], [false, "Rudder: less like this"], ["green", "Rudder: greenlight this channel"]]) {
+    for (const [like, label] of [[true, "Rudder: more like this"], [false, "Rudder: less like this"], ["green", "Rudder: greenlight this channel"], ["stop", "Rudder: stoplight this channel"]]) {
       const item = sample.cloneNode(true);
       item.setAttribute("rudder-item", ""); item.setAttribute("rudder-for", target.id);
       item.removeAttribute("has-separator");
@@ -270,15 +270,27 @@
       if (title) { const span = Object.assign(document.createElement("span"), { className: title.className, textContent: label }); title.replaceWith(span); }
       // the copied item's icon may not be drawn yet (YouTube's newer menu fills it in late): then its empty icon box
       const icon = item.querySelector("svg")?.parentElement ?? item.querySelector(".yt-icon-shape, .ytIconWrapperHost, yt-icon");
-      if (icon) icon.replaceChildren(like === "green" ? tick() : svg(like));
+      if (icon) icon.replaceChildren(typeof like === "string" ? tick(like === "stop") : svg(like));
       const act = (e) => {
         e.preventDefault(); e.stopImmediatePropagation();
         if (e.type !== "click") return;
         drop.close?.();
         document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-        if (like === "green") { // none of this channel's videos are filtered from now on
-          browser.runtime.sendMessage({ type: "rudder-greenlight", id: target.id, channel: target.channel })
-            .then((r) => toast(r?.ok ? `Greenlit: ${r.channel}` : "Rudder doesn't know this video's channel yet")).catch(() => {});
+        if (typeof like === "string") { // green: none of this channel's videos are filtered; stop: all of them hidden
+          const stop = like === "stop";
+          if (stop && target.tile) { target.tile.setAttribute("rudder-verdict", "block"); settleShelves(); }
+          if (stop && target.short && host() && shortId() === target.id) { host().setAttribute("rudder-verdict", "block"); skip(host(), target.id, false); }
+          browser.runtime.sendMessage({ type: "rudder-light", id: target.id, channel: target.channel, kind: like }).then((r) => {
+            if (!r?.ok) return toast("Rudder doesn't know this video's channel yet");
+            toast(`${stop ? "Stoplit" : "Greenlit"}: ${r.channel}`);
+            if (!stop) return;
+            // its other videos on this page go too (you asked for it: the one place shown tiles are taken out)
+            for (const tile of document.querySelectorAll(ALL)) {
+              const ch = text(tile.querySelector('a[href^="/@"]:not(#avatar-link), ytd-channel-name a, .yt-content-metadata-view-model__metadata-text'));
+              if (ch && ch.toLowerCase() === r.channel.toLowerCase()) tile.setAttribute("rudder-verdict", "block");
+            }
+            settleShelves();
+          }).catch(() => {});
           return;
         }
         if (!like && target.tile) { target.tile.setAttribute("rudder-verdict", "block"); settleShelves(); }

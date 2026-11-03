@@ -6,7 +6,7 @@
 // (bridge/: API.md). Learning what you'd dislike from your 👍 / 👎 is an app's job (WatchFeedback): Hull does it with
 // Gemma. Gemma in the browser (until 2026-10-31) and a MiniLM learner (until 2026-11-03) did it here before
 // (docs/history.md).
-import { setEnabled, stats, recentHidden, feedback, forget, greenlight, clicks, test, redecide, recordOf, setSink, setShownSink, setFeedbackSink, recheckTabs } from "./youtube/intercept.js";
+import { setEnabled, stats, recentHidden, feedback, forget, light, clicks, test, redecide, recordOf, setSink, setShownSink, setFeedbackSink, recheckTabs } from "./youtube/intercept.js";
 import { timed, timings, record } from "./timing.js";
 import { defineKind, setPipeline, getPipeline, kindNames, PASS } from "./pipeline.js";
 import { exactMatch, keywordMatch } from "./youtube/keywords.js";
@@ -188,7 +188,7 @@ browser.runtime.onConnect.addListener((port) => {
     if (msg.type === "rudder-like") feedback({ id: msg.id, like: true }).then(() => port.postMessage(ytState())).catch(() => {});
     if (msg.type === "panel-click") api.event(msg.panel, msg.button);
     if (msg.type === "rudder-forget") { forget(); port.postMessage(ytState()); }
-    if (msg.type === "rudder-greenlight") greenlight(msg).then(() => port.postMessage(ytState())).catch(() => {});
+    if (msg.type === "rudder-light") light(msg).then(() => port.postMessage(ytState())).catch(() => {});
   });
   port.postMessage(ytState());
 });

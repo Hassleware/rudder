@@ -34,13 +34,13 @@ The default pipeline:
 
 | Stage | What it checks | Speed |
 |---|---|---|
-| **your-clicks** | You liked or disliked this exact video before, or its channel is greenlit (shown) | Instant |
+| **your-clicks** | You liked or disliked this exact video before, or its channel is greenlit (shown) or stoplit (hidden) | Instant |
 | **keywords** | Your filters' words, and words related to them, in the title or channel name | Instant |
 | **thumbnail-text** | Your filters' words in the text written on the thumbnail | ~60–300 ms |
 
 **Filters** are plain phrases like "video games" or "news, war, death". A filter you add is **exact**: it hides videos with its own words, as written and as whole words ("AI" hides "AI news", not "said"). Its switch in the popup, **+related**, makes it expand into related words too: "news" also catches news channel names, "video games" catches game titles (`extension/youtube/keywords.js`). Rudder ships with 31 filters, related words on, and you can add or remove any of them in the popup.
 
-**Greenlit channels:** "Rudder: greenlight this channel" in a video's ⋮ menu means none of that channel's videos are filtered (the your-clicks stage shows them before any other stage runs). Only a video of theirs you 👎 yourself still goes. The popup lists them, with × to stop.
+**Greenlit and stoplit channels:** "Rudder: greenlight this channel" in a video's ⋮ menu means none of that channel's videos are filtered (the your-clicks stage shows them before any other stage runs). "Rudder: stoplight this channel" hides all of them, those on the page included. A channel is on one list at most, and a video of theirs you rated yourself still goes by your rating. The popup lists both, with × to stop.
 
 The **thumbnail-text** stage reads the text on thumbnails with Tesseract OCR (`extension/ocr.js`). OCR often turns noise into short words, so only matches of 4+ letters count.
 

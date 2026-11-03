@@ -2,19 +2,20 @@
 // your device. A video you rated is decided by your rating (the "your-clicks" stage), and a channel you've 👎 twice
 // and never 👍 is hidden. Learning what else you'd dislike is left to apps, which get every rating with the video's
 // record (bridge: WatchFeedback): Hull learns it with Gemma.
-// Greenlit channels: none of their videos are filtered (from the ⋮ menu, "Rudder: greenlight this channel"; removed in
-// the popup). Only a video you 👎 yourself still goes.
+// Channels you light, from the ⋮ menu (removed in the popup): greenlit ones are never filtered, stoplit ones always
+// hidden. A channel is on one list at most. A video you rated yourself still goes by your rating.
 const STORE = "rudder-clicks-v1", OLD_STORES = ["rudder-learning-v2", "rudder-learning-v1"]; // the old learner's: its clicks are kept
-const GREEN = "rudder-greenlit-v1";
+const LIGHTS = { green: "rudder-greenlit-v1", stop: "rudder-stoplit-v1" };
 const same = (a, b) => (a ?? "").trim().toLowerCase() === (b ?? "").trim().toLowerCase();
 
 export function createClicks(storage = globalThis.browser?.storage?.local) {
   let clicks = [], loaded = null, saveTimer = null; // clicks: { id, title, channel, like, at }, newest last
-  let greenlit = []; // channel names, as YouTube writes them
+  const lit = { green: [], stop: [] }; // channel names, as YouTube writes them
   const save = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => storage?.set({ [STORE]: clicks }).catch(() => {}), 500); };
   const load = () => (loaded ??= (async () => {
-    const got = (await storage?.get([STORE, GREEN, ...OLD_STORES]).catch(() => ({}))) ?? {};
-    greenlit = [...(got[GREEN] ?? []).filter((c) => !greenlit.some((g) => same(g, c))), ...greenlit];
+    const got = (await storage?.get([STORE, ...Object.values(LIGHTS), ...OLD_STORES]).catch(() => ({}))) ?? {};
+    const now = [...lit.green, ...lit.stop]; // lit while loading wins
+    for (const k in LIGHTS) lit[k] = [...(got[LIGHTS[k]] ?? []).filter((c) => !now.some((g) => same(g, c))), ...lit[k]];
     const old = OLD_STORES.map((k) => got[k]?.examples).find(Boolean);
     const saved = got[STORE] ?? (old ?? []).map(({ id, title, channel, like, at }) => ({ id, title, channel, like, at }));
     const ids = new Set(clicks.map((x) => x.id)); // anything clicked while loading wins
@@ -26,14 +27,15 @@ export function createClicks(storage = globalThis.browser?.storage?.local) {
 
   return {
     load,
-    stats: () => ({ likes: clicks.filter((x) => x.like).length, dislikes: clicks.filter((x) => !x.like).length, channels: hiddenChannels(), greenlit: [...greenlit] }),
-    // a channel greenlit (on) or not
-    greenlight(ch, on = true) {
+    stats: () => ({ likes: clicks.filter((x) => x.like).length, dislikes: clicks.filter((x) => !x.like).length, channels: hiddenChannels(),
+      greenlit: [...lit.green], stoplit: [...lit.stop] }),
+    // a channel greenlit ("green"), stoplit ("stop") or neither (null)
+    light(ch, kind) {
       ch = (ch ?? "").trim();
       if (!ch) return;
-      greenlit = greenlit.filter((c) => !same(c, ch));
-      if (on) greenlit.push(ch);
-      storage?.set({ [GREEN]: greenlit }).catch(() => {});
+      for (const k in lit) lit[k] = lit[k].filter((c) => !same(c, ch));
+      if (lit[kind]) lit[kind].push(ch);
+      storage?.set(Object.fromEntries(Object.entries(LIGHTS).map(([k, key]) => [key, lit[k]]))).catch(() => {});
     },
     async feedback(v, like) {
       await load();
@@ -48,7 +50,8 @@ export function createClicks(storage = globalThis.browser?.storage?.local) {
     judge(v) {
       const own = clicks.find((x) => x.id === v.id);
       if (own) return { verdict: own.like ? "show" : "hide", why: own.like ? "you liked it" : "you disliked it" };
-      if (v.channel && greenlit.some((c) => same(c, v.channel))) return { verdict: "show", why: "a channel you greenlit" };
+      if (v.channel && lit.stop.some((c) => same(c, v.channel))) return { verdict: "hide", why: "a channel you stoplit" };
+      if (v.channel && lit.green.some((c) => same(c, v.channel))) return { verdict: "show", why: "a channel you greenlit" };
       const ch = channel(v.channel);
       if (ch.down >= 2 && !ch.up) return { verdict: "hide", why: "a channel you disliked" };
       return { verdict: null };

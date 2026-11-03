@@ -29,7 +29,7 @@
   #list li { grid-template-columns: 1fr auto auto auto; }
   #list .mode { font-size: 10px; letter-spacing: .06em; padding: 0 4px; }
   #list .mode[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
-  #greenlit li { grid-template-columns: 1fr auto; }
+  #greenlit li, #stoplit li { grid-template-columns: 1fr auto; }
   #recent .why { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .empty { padding: 5px 8px; }
   button, input { font: inherit; color: var(--ink); background: var(--paper); border: 2px solid var(--ink); }
@@ -96,6 +96,8 @@
 
   <h2>Greenlit channels</h2>
   <ul id="greenlit"></ul>
+  <h2>Stoplit channels</h2>
+  <ul id="stoplit"></ul>
   <h2>Channels hidden</h2>
   <ul id="channels"></ul>
 

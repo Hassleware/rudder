@@ -23,7 +23,7 @@ function render(state) {
   filters = state.filters;
   related = new Set(state.related ?? []);
   const top = Math.max(1, ...filters.map((f) => s.by[f] ?? 0));
-  const key = JSON.stringify([filters, state.related, s.by, state.stages, s.byStage, state.waiting, l.greenlit]);
+  const key = JSON.stringify([filters, state.related, s.by, state.stages, s.byStage, state.waiting, l.greenlit, l.stoplit]);
   if (key === shown) return; // unchanged: don't rebuild under the cursor
   shown = key;
   // the pipeline's stages in order (apps can change them), each with how many videos it hid
@@ -49,10 +49,10 @@ function render(state) {
     li.append(bar, el("span", "name", f), el("span", "n", s.by[f] ?? 0), mode, del);
     return li;
   }));
-  fill($("greenlit"), (l.greenlit ?? []).map((c) => {
+  for (const [list, what] of [["greenlit", "greenlighting"], ["stoplit", "stoplighting"]]) fill($(list), (l[list] ?? []).map((c) => {
     const li = el("li"), del = el("button", "", "×");
-    del.setAttribute("aria-label", `Stop greenlighting ${c}`);
-    del.addEventListener("click", () => port.postMessage({ type: "rudder-greenlight", channel: c, on: false }));
+    del.setAttribute("aria-label", `Stop ${what} ${c}`);
+    del.addEventListener("click", () => port.postMessage({ type: "rudder-light", channel: c, kind: null }));
     li.append(el("span", "name", c), del);
     return li;
   }));
