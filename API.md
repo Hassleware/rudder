@@ -54,7 +54,7 @@ Stage settings (`config`):
 2. Put a stage of kind `app` with `config.name` set to that name into the pipeline (`GetPipeline`, insert, `SetPipeline`).
 3. Each `StageRequest` brings a batch of videos and the stage's config. Answer with a `reply` of the same `id`: one `StageResult` per video, in order, each with a `decision` (`PASS`, `HIDE` or `SHOW`), a `why` and any `fields` you want later stages to see.
 
-You have 25 seconds per batch. A late, missing or wrong-sized answer hides those videos. Rudder remembers each video's answer per stage config, so each video is sent once; change the config to have everything judged again. With `"remember": false` Rudder instead asks again each time YouTube sends the video (a new page, a refresh, after a restart), for answers that change, such as "seen before". One app can run several stages with different configs: the config comes with each request.
+You have 25 seconds per batch. A late, missing or wrong-sized answer hides those videos. Rudder remembers each video's answer per stage config, so each video is sent once; change the config to have everything judged again. With `"remember": false` Rudder instead asks again at every sighting: each page view a video is on (a load, a refresh, a navigation inside YouTube), YouTube sending it again, and after a restart. The video waits, hidden, for the new answer, so answers that change, such as "seen before", hold on every page. One app can run several stages with different configs: the config comes with each request.
 
 ## The video record
 
@@ -72,11 +72,11 @@ Every video in the API (stage requests, `WatchVideos`, `GetVideos`, `Test`) has 
 | `thumbnail`, `thumbnail_type`, `thumbnail_url` | The image Firefox downloaded for the page, its type and address |
 | `source` | Where it came from: `browse` (home, channels), `next` (watch page), `search`, `reel_watch_sequence` (Shorts), `player`, `page`, `tile` |
 | `short` | A Short |
-| `fields` | Added by earlier stages: `thumbnail_text`, and your apps' fields |
+| `fields` | `page`: the kind of page the video is on at this sighting (`home`, `search`, `channel`, `watch`, `shorts`, `other`; empty before a page has asked). Added by earlier stages: `thumbnail_text`, and your apps' fields |
 
 Rudder makes no requests to YouTube itself, so fields YouTube didn't send are empty rather than fetched. The thumbnail is the one the page loaded; a video whose thumbnail came from the browser's cache has none. Reload the page for complete records.
 
-`WatchVideos` streams each video with its outcome (hidden or not, which stage decided, why) the first time it's decided. `WatchShown` streams the ids Rudder actually puts on screen, each time it does; a video decided as shown that the user never got to isn't in it. `GetVideos` returns the newest 500 the bridge has seen, newest first; set `thumbnails` to include the images.
+`WatchVideos` streams each video with its outcome (hidden or not, which stage decided, why) the first time it's decided. `WatchShown` streams the ids Rudder actually puts on screen, each time it does; a video decided as shown that the user never got to isn't in it. Ones shown while the bridge was away (up to 1000) are sent when it's back. Rudder shows a video once per page: a second tile of it on the same page is taken out, except on searches and channel pages. `GetVideos` returns the newest 500 the bridge has seen, newest first; set `thumbnails` to include the images.
 
 `WatchFeedback` streams every like and dislike you give (Rudder's "more / less like this" and YouTube's 👍 / 👎) with the video's record, including videos you rated without watching.
 

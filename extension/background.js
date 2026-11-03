@@ -74,13 +74,14 @@ defineKind("app", {
     return null;
   },
   async batch(vs, config) {
+    const asked = vs.map(sighting); // a new sighting meanwhile (a refresh) needs a new answer: these are for this one
     const rs = await api.stage(config.name, config, vs.map(recordOf));
     if (rs.length !== vs.length) throw new Error(`app ${config.name} answered ${rs.length} of ${vs.length} videos`);
     vs.forEach((v, i) => {
       const decision = String(rs[i]?.decision ?? "pass").toLowerCase();
       if (!DECISIONS.has(decision)) throw new Error(`app ${config.name}: unknown decision "${rs[i]?.decision}"`);
       const fields = Object.fromEntries(Object.entries(rs[i]?.fields ?? {}).map(([k, x]) => [k, String(x).slice(0, 2000)]));
-      (v.app ??= {})[appKey(config)] = { decision, why: String(rs[i]?.why ?? "").slice(0, 200), fields, at: sighting(v) };
+      (v.app ??= {})[appKey(config)] = { decision, why: String(rs[i]?.why ?? "").slice(0, 200), fields, at: asked[i] };
     });
   },
 });

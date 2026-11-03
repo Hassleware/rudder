@@ -102,10 +102,14 @@ function learn(json, source, tabId) {
   if (owner) for (const v of found) v.channel ??= owner;
   for (const v of found) {
     const old = videos.get(v.id);
+    // the kind of page, when the data says (judging ahead, before a tile asks: see verdict)
+    const page = source === "search" ? "search" : owner ? "channel" : null;
+    if (page) v.fields = { ...v.fields, page };
     if (!old) videos.set(v.id, { ...v, order: ++order, source, seenAt: now() });
     else if (!old.title && v.title) Object.assign(old, { ...v, source, seenAt: old.seenAt ?? now() }, { image: old.image, imageType: old.imageType, imageAt: old.imageAt }); // its thumbnail came first
     else { // seen before: fill in what's new (a watch page brings the description, its length and an exact date)
       for (const k of ["description", "published", "duration", "channel"]) if (v[k] != null && (old[k] == null || (k === "published" && /ago/.test(old[k])))) old[k] = v[k];
+      if (page) (old.fields ??= {}).page = page;
       // YouTube sending it again (a new page, a refresh) is a new sighting: app stages with "remember": false are asked
       // again. Within 10 s it's the same page sending it twice.
       if (now() - (old.sightedAt ?? 0) < 10000) continue;
@@ -228,12 +232,19 @@ export function recentHidden(n = 25) {
 // thumbnail has been read); "block" if the pipeline hid it. A tile whose data never came through (e.g. added while
 // scrolling) is judged on the title and channel the page shows in the tile itself. If the page drew the thumbnail from
 // its own memory (no download for us to read), it's allowed after 2 s, and marked so.
-export function verdict({ id, imageLoaded, title, channel, dist, viewer }) {
+export function verdict({ id, imageLoaded, title, channel, dist, viewer, view, page }) {
   let v = videos.get(id);
   if (!v && title) videos.set(id, (v = { id, title, channel, order: ++order, source: "tile", seenAt: now() }));
   if (v && !v.title && title) Object.assign(v, { title, channel: v.channel ?? channel, source: "tile", seenAt: v.seenAt ?? now() });
   if (!enabled) return "show"; // filtering switched off in the popup
   if (!v?.title) return "wait";
+  // a new page view (feed.js): a new sighting, so an answer from an earlier page can't show it here. The record says
+  // what kind of page it's on (fields.page: home, search, channel, watch, shorts, other)
+  if (view && v.view !== view) {
+    if (v.view !== undefined) v.sightedAt = now(); // its first view keeps the answer judged ahead: it hasn't been shown yet
+    v.view = view;
+    if (page) (v.fields ??= {}).page = page;
+  }
   v.dist = dist;
   // no thumbnail download to read: the Shorts viewer (it plays the video itself), or the page drew the thumbnail from
   // its own memory (allowed 2 s after it appeared): judged on the title alone

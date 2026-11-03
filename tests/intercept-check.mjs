@@ -55,6 +55,24 @@ expect("…with no new runs", runs.length, 0);
 setPipeline([{ id: "everything", kind: "word", config: { word: "." } }]); redecide();
 expect("pipeline replaced by one stage: it decides alone", ask("g1", "Learn guitar chords"), "block");
 setPipeline(FULL); redecide();
+// a new page view is a new sighting: an app's answer from an earlier page can't show it again; it waits for a new one
+{
+  const { defineKind: dk } = await import("../extension/pipeline.js");
+  let say = "pass", asked = 0;
+  dk("perview", { check: (v) => (v.pv && v.pv.at === v.sightedAt ? v.pv : null), async batch(vs) { asked++; for (const v of vs) v.pv = { decision: say, at: v.sightedAt }; } });
+  setPipeline([{ id: "perview", kind: "perview" }]);
+  const tile = (view, page) => verdict({ id: "rv1", title: "Seen once", channel: "", viewer: true, dist: 0, view, page });
+  tile("a", "home"); await wait(300);
+  expect("first page view: shown", tile("a", "home"), "show");
+  say = "hide";
+  expect("refresh (a new view): waits for the app, not the old answer", tile("b", "home"), "wait");
+  await wait(300);
+  expect("…then the new answer hides it", tile("b", "home"), "block");
+  expect("…and the record says what page it's on", recordOf(videos.get("rv1")).fields.page, "home");
+  tile("c", "search");
+  expect("a search page is passed on too", recordOf(videos.get("rv1")).fields.page, "search");
+  setPipeline(FULL); redecide();
+}
 let threw = "";
 try { setPipeline([{ kind: "nope" }]); } catch (err) { threw = err.message; }
 expect("an unknown kind is refused", /unknown stage kind/.test(threw), true);

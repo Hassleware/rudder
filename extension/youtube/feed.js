@@ -26,6 +26,19 @@
   const GRID = 'ytd-browse[page-subtype="home"] ytd-rich-grid-renderer';
   let busy = false, again = false;
   const text = (el) => el?.textContent.trim().replace(/\s+/g, " ") || null;
+  // Each page view (a load, a refresh, a navigation inside YouTube) is a new sighting of every video on it: apps that
+  // judge each sighting ("remember": false, such as "seen before") are asked again, and the tile waits for them.
+  // A video shows once per view: a second tile of it on the same page is taken out (not on searches or channel pages,
+  // where you went looking).
+  const newView = () => Math.random().toString(36).slice(2);
+  let view = newView(), onScreen = new Set();
+  window.addEventListener("yt-navigate-finish", () => { view = newView(); onScreen = new Set(); });
+  const pageKind = () => {
+    const p = location.pathname;
+    return p === "/results" ? "search" : /^\/(@|channel\/|c\/|user\/)/.test(p) ? "channel" : p === "/watch" ? "watch"
+      : p.startsWith("/shorts") ? "shorts" : p === "/" ? "home" : "other";
+  };
+  const looking = () => ["search", "channel"].includes(pageKind());
   // the Shorts viewer: one slot per short in the swipe sequence, each showing its thumbnail until the player moves in
   const SLOTS = "ytd-shorts .reel-video-in-sequence-new";
   const slotId = (slot) => slot.querySelector(".reel-video-in-sequence-thumbnail")?.style.backgroundImage.match(/\/vi\/([\w-]{11})/)?.[1];
@@ -46,7 +59,14 @@
     for (const tile of tiles) {
       const v = tile.getAttribute("rudder-verdict");
       if (v === "block") continue;
-      if (v === "ready" && open) { tile.setAttribute("rudder-verdict", "show"); shown.push(tile.getAttribute("rudder-id")); continue; }
+      if (v === "ready" && open) {
+        const id = tile.getAttribute("rudder-id");
+        if (onScreen.has(id) && !looking()) { tile.setAttribute("rudder-verdict", "block"); continue; } // already on this page
+        onScreen.add(id);
+        tile.setAttribute("rudder-verdict", "show");
+        shown.push(id);
+        continue;
+      }
       if (v === "show" || v === "ready") continue;
       if (!since.has(tile)) since.set(tile, t);
       if (!free && t - since.get(tile) < (tile.hasAttribute("rudder-id") ? 60000 : 5000)) open = false;
@@ -306,7 +326,7 @@
         if (id === watching || (id === opened && tile.matches(SLOTS))) { tile.setAttribute("rudder-verdict", "ready"); continue; } // the video being watched, or the short the viewer was opened on: never filtered
         const img = tile.querySelector("img"), r = tile.getBoundingClientRect();
         ask.push({
-          tile, id, imageLoaded: !!(img?.complete && img.naturalWidth), viewer: tile.matches(SLOTS) || undefined,
+          tile, id, imageLoaded: !!(img?.complete && img.naturalWidth), viewer: tile.matches(SLOTS) || undefined, view, page: pageKind(),
           dist: (r.top - innerHeight) / innerHeight, // screens below the window (≤ 0: on screen); the nearest go first
           // what the tile itself shows, for videos whose data didn't come through (only used then)
           title: text(tile.querySelector("#video-title, .yt-lockup-metadata-view-model__title, h3")),

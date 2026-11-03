@@ -8,6 +8,7 @@ const ADDRESS = "ws://127.0.0.1:7834", TIMEOUT = 30000;
 
 export function startApi({ state, setFilters, setEnabled, getPipeline, setPipeline, appsChanged, setPanel, timings, test }) {
   let ws = null, n = 0, apps = new Set();
+  const unsent = []; // videos put on screen while the bridge was away: sent when it's back, so apps still hear of them
   const waiting = new Map(); // stage request id → { resolve, reject, timer }
   const send = (m) => ws?.readyState === 1 && ws.send(JSON.stringify(m));
   const setApps = (names) => {
@@ -20,7 +21,7 @@ export function startApi({ state, setFilters, setEnabled, getPipeline, setPipeli
 
   function connect() {
     ws = new WebSocket(ADDRESS);
-    ws.onopen = () => send(state());
+    ws.onopen = () => { send(state()); while (unsent.length) send(unsent.shift()); };
     ws.onclose = () => {
       ws = null;
       setApps([]);
@@ -61,7 +62,11 @@ export function startApi({ state, setFilters, setEnabled, getPipeline, setPipeli
     // a video's record and outcome, the first time it's decided (bridge: WatchVideos)
     video: (record, outcome) => send({ type: "video", video: wire(record), outcome }),
     // videos put on screen (bridge: WatchShown)
-    shown: (ids, at) => send({ type: "shown", ids, at }),
+    shown: (ids, at) => {
+      const m = { type: "shown", ids, at };
+      if (ws?.readyState !== 1) return unsent.push(m) > 1000 && unsent.shift();
+      send(m);
+    },
     // your 👍 / 👎 on a video, with its record (bridge: WatchFeedback)
     feedback: (record, like) => send({ type: "feedback", video: wire(record), like, at: Date.now() }),
     // caption lines you just watched (bridge: WatchCaptions)
