@@ -6,7 +6,7 @@
 // set-filters, set-enabled, get-pipeline, set-pipeline, stage-result, panel, timings, test. See API.md.
 const ADDRESS = "ws://127.0.0.1:7834", TIMEOUT = 30000;
 
-export function startApi({ state, setFilters, setEnabled, getPipeline, setPipeline, appsChanged, setPanel, timings, test }) {
+export function startApi({ state, setFilters, setEnabled, getPipeline, setPipeline, appsChanged, setPanel, timings, test, address = ADDRESS }) {
   let ws = null, n = 0, apps = new Set();
   const unsent = []; // videos put on screen while the bridge was away: sent when it's back, so apps still hear of them
   const waiting = new Map(); // stage request id → { resolve, reject, timer }
@@ -20,7 +20,7 @@ export function startApi({ state, setFilters, setEnabled, getPipeline, setPipeli
   const answer = (m, fn) => { try { send({ ...fn(), id: m.id }); } catch (err) { send({ type: m.type, id: m.id, error: err.message }); } };
 
   function connect() {
-    ws = new WebSocket(ADDRESS);
+    ws = new WebSocket(address); // tests use other ports
     ws.onopen = () => { send(state()); while (unsent.length) send(unsent.shift()); };
     ws.onclose = () => {
       ws = null;

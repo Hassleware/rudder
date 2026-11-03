@@ -9,9 +9,11 @@ import { startApi } from "../extension/api.js";
 import { record, timings } from "../extension/timing.js";
 
 const cwd = fileURLToPath(new URL("../bridge/", import.meta.url));
-const py = (...args) => spawn("python", args, { cwd });
+// its own ports: your Firefox's Rudder connects to 7834, and would otherwise join the test (and get its filters)
+const WS_PORT = 17834, GRPC_PORT = 17833;
+const py = (...args) => spawn("python", args, { cwd, env: { ...process.env, RUDDER_WS_PORT: WS_PORT, RUDDER_GRPC_PORT: GRPC_PORT } });
 // a few lines of Python against the generated stubs
-const grpcPy = (code) => py("-c", `import grpc, rudder_pb2 as pb, rudder_pb2_grpc as rpc\nr = rpc.RudderStub(grpc.insecure_channel('127.0.0.1:7833'))\n${code}`);
+const grpcPy = (code) => py("-c", `import grpc, rudder_pb2 as pb, rudder_pb2_grpc as rpc\nr = rpc.RudderStub(grpc.insecure_channel('127.0.0.1:${GRPC_PORT}'))\n${code}`);
 const line = (p, re) => new Promise((resolve) => { let out = ""; const on = (d) => { out += d; if (re.test(out)) resolve(out); }; p.stdout.on("data", on); p.stderr.on("data", on); });
 const until = async (ok) => { for (let i = 0; i < 100 && !ok(); i++) await new Promise((r) => setTimeout(r, 100)); assert.ok(ok()); };
 
@@ -22,6 +24,7 @@ const KINDS = ["your-clicks", "keywords", "thumbnail-text", "app"], panels = [];
 let appsChanges = 0;
 record("keywords (a video)", 2);
 const api = startApi({
+  address: `ws://127.0.0.1:${WS_PORT}`,
   state: () => ({ type: "state", enabled, filters, stages: stages.map((s) => s.id), stats: { checked: 3, hidden: 1, by: { news: 1 }, byStage: { keywords: 1 } }, recent: [] }),
   setFilters: (f) => { filters = f; api.changed(); },
   setEnabled: (on) => { enabled = on; api.changed(); },
