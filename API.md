@@ -76,7 +76,7 @@ Every video in the API (stage requests, `WatchVideos`, `GetVideos`, `Test`) has 
 
 Rudder makes no requests to YouTube itself, so fields YouTube didn't send are empty rather than fetched. The thumbnail is the one the page loaded; a video whose thumbnail came from the browser's cache has none. Reload the page for complete records.
 
-`WatchVideos` streams each video with its outcome (hidden or not, which stage decided, why) the first time it's decided. `WatchShown` streams the ids Rudder actually puts on screen, each time it does; a video decided as shown that the user never got to isn't in it. Ones shown while the bridge was away (up to 1000) are sent when it's back. Rudder shows a video once per page: a second tile of it on the same page is taken out, except on searches and channel pages. `GetVideos` returns the newest 500 the bridge has seen, newest first; set `thumbnails` to include the images.
+`WatchVideos` streams each video with its outcome (hidden or not, which stage decided, why) the first time it's decided. `WatchShown` streams the ids Rudder actually puts on screen, each time it does; a video decided as shown that the user never got to isn't in it. Ones shown while the bridge was away (up to 1000) are sent when it's back, and so are likes and dislikes (`WatchFeedback`). Rudder shows a video once per page: a second tile of it on the same page is taken out, except on searches and channel pages. `GetVideos` returns the newest 500 the bridge has seen, newest first; set `thumbnails` to include the images.
 
 `WatchFeedback` streams every like and dislike you give (Rudder's "more / less like this" and YouTube's 👍 / 👎) with the video's record, including videos you rated without watching.
 
